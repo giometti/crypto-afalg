@@ -1,0 +1,222 @@
+# crypto-afalg
+
+A user-space application that leverages the Linux Kernel Crypto API through the `AF_ALG` socket family.
+
+This project provides a simple and efficient way to offload cryptographic operations directly to the kernel, taking advantage of hardware acceleration where available, and the possibility to use keys from the Linux Keyring system.
+
+-----
+
+## About
+
+The Linux kernel includes a powerful Crypto API that allows various components to perform cryptographic tasks. The `AF_ALG` (Address Family for Algorithms) socket family provides a clean and secure user-space interface to this API.
+
+This project demonstrates how to use this interface to perform common cryptographic operations with the help of keys from the Linux Keyring system.
+
+The main advantage of using the `AF_ALG` interface is **security**: cryptographic operations and symmetric keys are handled within the kernel, reducing the risk of data exposure in user space.
+
+A secondary advantage is **performance**: there is potential for significant speed improvements by utilizing hardware cryptographic accelerators (e.g., AES-NI, CAAM).
+
+## Features
+
+This project provides a basic example of how to interact with the kernel's crypto API. The current implementation demonstrates:
+
+  * **Hashing:** Calculating message digests using algorithms available in the kernel.
+  * **Symmetric Ciphers:** Performing encryption and decryption with standard ciphers.
+
+*(Note: The list of supported algorithms depends on your Linux kernel configuration.)*
+
+## Requirements
+
+To build and run this project, you need:
+
+  * A Linux system with **Kernel 6.2 or newer**, with `AF_ALG` and `KEYS` support enabled.
+  * A C compiler (e.g., `gcc`).
+  * The standard Linux kernel headers installed on your system.
+
+## How to Build
+
+Navigate to the project directory and use `make` to compile the application.
+
+```bash
+$ git clone https://github.com/giometti/crypto-afalg.git
+$ cd crypto-afalg
+$ make
+```
+
+You can run tests using the `make tests` command:
+
+```bash
+$ make tests
+executing test0001.sh... aes-128-cbc [simple-enc-dec]: OK.
+executing test0002.sh... aes-128-cbc [long-enc-dec]: OK.
+executing test0003.sh... aes-128-cbc [file-enc-dec]: OK.
+... (truncated output) ...
+all test are OK!
+```
+
+If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm.
+
+## How to Use
+
+The `crypto-afalg` tool is a command-line utility.
+
+### Basic Usage
+
+To check the version of the tool:
+
+```bash
+$ ./crypto-afalg --version
+crypto-afalg v0.0.0-0-g0000000
+Copyright (C) 2025 Rodolfo Giometti <giometti@enneenne.com>
+This is free software, and you are welcome to redistribute it under
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+*** This program comes with ABSOLUTELY NO WARRANTY. ***
+```
+
+To view the general help message with a list of available commands:
+
+```bash
+$ ./crypto-afalg --help
+usage: crypto-afalg [ -d|--debug ] [ -h|--help ] [--version] [ --force-driver <name> ] <command> ...
+  <command> can be:
+    encrypt <algo> <opts> : encrypt data
+    decrypt <algo> <opts> : decrypt data
+    hash <algo> <opts>    : compute data hash
+```
+
+### Encryption and Decryption
+
+For detailed help on the `encrypt` or `decrypt` commands:
+
+```bash
+$ ./crypto-afalg encrypt --help
+to see available algos use:
+        crypto-afalg decrypt
+to check a kernel algo use:
+        crypto-afalg decrypt check-kalgo <kname>
+to get help use:
+        crypto-afalg decrypt help|-h|--help
+normal usage:
+        crypto-afalg decrypt <algo> <KEY> <IV> | <PASS> [ <SALT> ] [ -i|--iterat
+ions <val> ]
+where <KEY> can be one of:
+    -K|--key <val>          : hex value key
+    -k|--keyfile <name>     : key from file
+    -S|--keyserial <val>    : key from keyring
+where <IV> can be one of:
+    -V|--iv <str>           : iv
+    -v|--ivfile <name>      : iv from file
+where <PASS> can be one of:
+    -P|--pass <str>         : passkey
+    -p|--passfile <name>    : passkey from file
+where <SALT> can be one of:
+    -T|--salt <str>         : salt
+    -t|--saltfile <name>    : salt from file
+NOTE: keyring key can be:
+      - a simple serial number, or
+      - a symbolic name as [<keyring>,]<type>,<name>
+```
+
+Note that, if your system does not support symmetric encryption via keyring keys (see the define `ALG_SET_KEY_BY_KEY_SERIAL`), the `-S|--keyserial` option will not be shown.
+
+To encrypt/decrypt data:
+
+```bash
+$ ./crypto-afalg encrypt aes-128-cbc \
+    -K 06a9214036b8a15b512e03d534120006 \
+    -V 3dafba429d9eb430b422da802c9fac41 < file.txt > file.enc
+
+$ ./crypto-afalg decrypt aes-128-cbc \
+    -K 06a9214036b8a15b512e03d534120006 \
+    -V 3dafba429d9eb430b422da802c9fac41 < file.enc > file.txt
+```
+
+All encrypted files are OpenSSL compatible, so you can test them like this:
+
+```bash
+$ echo 'Test data' | ./crypto-afalg encrypt aes-128-cbc \
+    -K 06a9214036b8a15b512e03d534120006 \
+    -V 3dafba429d9eb430b422da802c9fac41 | \
+  openssl enc -aes-128-cbc -d \
+    -K 06a9214036b8a15b512e03d534120006 \
+    -iv 3dafba429d9eb430b422da802c9fac41
+Test data
+```
+
+You can also use a passphrase:
+
+```bash
+$ echo 'Test data' | ./crypto-afalg encrypt aes-128-cbc -P 'test-phrase' | \
+  openssl enc -aes-128-cbc -d -pbkdf2 -k 'test-phrase'
+Test data
+```
+
+### Hashing
+
+To get detailed help and usage examples for the `hash` command:
+
+```bash
+$ ./crypto-afalg hash --help
+to see available algos use:
+	crypto-afalg hash
+to check a kernel algo use:
+	crypto-afalg hash check-kalgo <kname>
+to get help use:
+	crypto-afalg hash help|-h|--help
+normal usage:
+	crypto-afalg hash <algo> <KEY>
+where <KEY> can be one of:
+    -K|--key <val>        : hex value key
+    -k|--keyfile <name>   : key from file
+    -P|--pass <str>       : passkey
+    -p|--passfile <name>  : passkey from file
+```
+
+To hash data:
+
+```bash
+$ echo 'Single block msgSecond block msg' | \
+  ./crypto-afalg hash sha-256
+0acbb46a235c5a2b49f4de5e469b5d9964b4a470cb071312a0ae72dbb21d9e9d
+```
+
+The output is the same as other hashing tools:
+
+```bash
+$ echo 'Single block msgSecond block msg' | \
+  sha256sum
+0acbb46a235c5a2b49f4de5e469b5d9964b4a470cb071312a0ae72dbb21d9e9d  -
+```
+
+### Common Commands
+
+You can list available algorithms:
+
+```bash
+$ ./crypto-afalg decrypt
+crypto-afalg:   name                kernel-name    block(B)   key/iv(B)
+crypto-afalg: - aes-128-cbc         cbc(aes)          16        16/16
+crypto-afalg: - aes-256-cbc         cbc(aes)          16        32/16
+crypto-afalg: - caam(aes-256-cbc)   tk(cbc(aes))      16        52/16
+crypto-afalg:   NOTE: 'x' means 'not available'
+```
+
+or
+
+```bash
+$ ./crypto-afalg hash
+crypto-afalg:   name                kernel-name    block(B)   key(B)
+crypto-afalg: - sha-256             sha256            64        0
+crypto-afalg: - hmac-sha-256        hmac(sha256)      64        32
+crypto-afalg:   NOTE: 'x' means 'not available'
+crypto-afalg:   NOTE: Algorithms with a non-zero key size require a key.
+```
+
+By using the `--force-driver` option, you can force the use of a specific kernel algorithm despite its priority (see `/proc/crypto`).
+
+-----
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. You can find the full text of the license in the `LICENSE.md` file in this repository or by visiting the [official GNU website](https://www.gnu.org/licenses/gpl-3.0.html).
