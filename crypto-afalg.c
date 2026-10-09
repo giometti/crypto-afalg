@@ -17,6 +17,7 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ctype.h>
 #include <keyutils.h>
 #include <regex.h>
 #include "crypto-afalg.h"
@@ -178,14 +179,23 @@ reset:
 size_t parse_str(const char *label, const char *str, char *data, size_t len)
 {
         size_t i;
+        unsigned int byte;
         int ret;
 
         if (strlen(str) != 2 * len)
                 fatal("invalid %s length!", label);
         for (i = 0; i < len; i++) {
-                ret = sscanf(str + 2 * i, "%02x", (unsigned int *) &data[i]);
+		/*
+		 * %x alone also takes blanks, a sign or a single digit;
+		 * isxdigit() is ASCII only, as no locale is ever set.
+		 */
+		if (!isxdigit((unsigned char) str[2 * i]) ||
+		    !isxdigit((unsigned char) str[2 * i + 1]))
+                        fatal("cannot parse %s at byte #%lu", label, i);
+                ret = sscanf(str + 2 * i, "%02x", &byte);
                 if (ret != 1)
                         fatal("cannot parse %s at byte #%lu", label, i);
+		data[i] = byte;
         }
 
         return i;
