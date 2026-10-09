@@ -183,7 +183,7 @@ static size_t detect_salt(char *salt)
 	size = fread(salt, 1, strlen(marker), stdin);
 	if (size != strlen(marker))
 		fatal("cannot read header");
-	if (strcmp(marker, salt) != 0)
+	if (memcmp(marker, salt, strlen(marker)) != 0)
 		return 0;
 	size = fread(salt, 1, SALT_LEN, stdin);
 	if (size != SALT_LEN)
