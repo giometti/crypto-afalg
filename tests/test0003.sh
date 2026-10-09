@@ -5,7 +5,7 @@ echo -n "aes-128-cbc [file-enc-dec]: "
 . test-preset.inc
 
 fail=n
-cp ../crypto-afalg.c $NAME.in
+cp $SRCDIR/crypto-afalg.c $NAME.in
 cat $NAME.in | \
 	crypto-afalg encrypt aes-128-cbc \
 		-K 06a9214036b8a15b512e03d534120006 \

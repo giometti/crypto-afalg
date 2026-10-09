@@ -17,11 +17,33 @@ fi
 
 set -e
 
-which make 2>/dev/null 1>&2 && make -s --no-print-directory -C ..
-export PATH+=":..:."
-export LD_LIBRARY_PATH=..
+tests=$(cd "$(dirname "$0")" && pwd)
+top=$(dirname "$tests")
+path=$(realpath -- "$test")
+
+# Build and run out of the source tree; do_all_tests.sh shares one
+# directory with every test through TESTS_TMPDIR and removes it itself
+if [ -n "$TESTS_TMPDIR" ]; then
+	tmp=$TESTS_TMPDIR
+else
+	tmp=$(mktemp -d) || exit 1
+	trap 'rm -rf "${tmp:?}"' EXIT
+fi
+mkdir -p "$tmp/build" "$tmp/run"
+
+# A copy of the sources, not VPATH: make would take objects and binary
+# already built in the source tree as up to date and skip $tmp/build.
+# With -p the mtimes are kept, so the tests after the first rebuild nothing
+cp -p "$top"/*.c "$top"/*.h "$top"/Makefile "$tmp/build/"
+which make 2>/dev/null 1>&2 && make -s --no-print-directory -C "$tmp/build"
+# The tests source test-preset.inc and test-end.inc by bare name: the
+# shell finds them through PATH
+export PATH="$tmp/build:$tests:$PATH"
+export LD_LIBRARY_PATH="$tmp/build"
+export SRCDIR=$top
 
 echo -n "executing $test... "
-./$test
+cd "$tmp/run"
+"$path"
 
 exit 0
