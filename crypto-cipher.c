@@ -497,7 +497,7 @@ void do_crypt(int argc, char *argv[])
 		write_salt(salt, salt_len);
 
 	BUG_ON(algo_block_size(algo) > MAX_BLOCK_SIZE);
-	last_nread = algo_block_size(algo) - 1;
+	last_nread = 0;
 	last_unwritten = 0;
 	size = 0;
 	do {
