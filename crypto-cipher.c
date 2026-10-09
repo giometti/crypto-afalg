@@ -26,6 +26,7 @@
 
 #define MAX_BLOCK_SIZE		16
 #define MAX_KEY_LEN		64
+#define MAX_PASS_LEN		1024	/* as openssl enc -pass file: */
 #define MAX_IV_LEN		32
 #define SALT_LEN		8
 
@@ -106,6 +107,24 @@ static size_t parse_salt(const char *str, char *salt, size_t salt_len)
 static size_t read_salt(const char *file, char *salt, size_t salt_len)
 {
 	return read_file("salt", file, salt, salt_len);
+}
+
+/*
+ * As openssl enc -pass file: only the first line, at most size - 1
+ * characters; fgets() and not read_file() since the file may be a pipe
+ */
+static size_t read_pass(const char *file, char *pass, size_t size)
+{
+	FILE *f;
+
+	f = fopen(file, "r");
+	if (!f)
+		fatal("cannot open pass file %s: %m", file);
+	if (!fgets(pass, size, f))
+		fatal("cannot read pass file %s", file);
+	fclose(f);		/* intentionally ignored */
+
+	return strcspn(pass, "\n");
 }
 
 static void init_afalg_data(int fd, int cmd, char *iv, size_t iv_len)
@@ -328,9 +347,8 @@ void do_crypt(int argc, char *argv[])
 	enum afalg_algo_e algo;
 	char key[MAX_KEY_LEN], iv[MAX_IV_LEN];
 	size_t key_len = 0, iv_len = 0;
-	char passbuf[MAX_KEY_LEN], *pass = passbuf, salt[SALT_LEN];
+	char passbuf[MAX_PASS_LEN], *pass = passbuf, salt[SALT_LEN];
 	size_t pass_len = 0, salt_len = 0;
-	char *eol;
 	int iterations = 10000;	/* the default */
 	bool generated_salt = false;
 	char ibuf[BUF_SIZE], obuf[BUF_SIZE];
@@ -412,11 +430,7 @@ void do_crypt(int argc, char *argv[])
 			break;
                 case 'p':
 			pass = passbuf;
-			pass_len = read_key(optarg, pass, 0);
-			/* As openssl enc -pass file: only the first line */
-			eol = memchr(pass, '\n', pass_len);
-			if (eol)
-				pass_len = eol - pass;
+			pass_len = read_pass(optarg, pass, MAX_PASS_LEN);
 			break;
 
                 case 'T':
