@@ -264,7 +264,7 @@ static void write_salt(char *salt, size_t salt_len)
 static void write_data(size_t block_size, char *obuf, size_t size, int cmd,
 			char unwritten[], size_t *last_unwritten)
 {
-	size_t n;
+	size_t n, i;
 
 	if (cmd == ALG_OP_DECRYPT) {
 		if (size > block_size) {
@@ -280,14 +280,14 @@ static void write_data(size_t block_size, char *obuf, size_t size, int cmd,
 			memcpy(unwritten, obuf, size);
 			*last_unwritten = size;
 		} else if (size == 0) {
-			if (memcmp(unwritten, padding, block_size) == 0)
-				return;
-			n = unwritten[block_size - 1];
-			if (n < 0x10 && unwritten[block_size - n] == n)
-				n = block_size - n;
-			else
-				n = block_size;
-			fwrite(unwritten, 1, n, stdout);
+			/* PKCS#7: last n bytes all n, 0 < n <= block size */
+			n = (unsigned char) unwritten[block_size - 1];
+			if (n < 1 || n > block_size)
+				fatal("bad decrypt (wrong padding)");
+			for (i = block_size - n; i < block_size; i++)
+				if ((unsigned char) unwritten[i] != n)
+					fatal("bad decrypt (wrong padding)");
+			fwrite(unwritten, 1, block_size - n, stdout);
 		} else
 			BUG();
 	} else
