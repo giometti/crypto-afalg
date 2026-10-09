@@ -32,6 +32,9 @@ To build and run this project, you need:
   * A Linux system with **Kernel 6.2 or newer**, with `AF_ALG` and `KEYS` support enabled.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
+  * git, used by the build to compute the version string.
+  * bash, for the version helper and the tests.
+  * GNU make 4.2 or newer (for `.SHELLSTATUS`).
 
 ## How to Build
 
@@ -42,6 +45,8 @@ $ git clone https://github.com/giometti/crypto-afalg.git
 $ cd crypto-afalg
 $ make
 ```
+
+The version string is stamped into the binary at build time by `tools/git-version.sh`, from `git describe --tags --long --match "v*" --dirty` (for example `v1.0.0-14-g93990b9`, with a trailing `-dirty` for a modified tree). A repository without `v*` tags gives `v0.0.0-<commits>-g<hash>`, and a source tree outside any git repository of its own gives `v0.0.0-0-g0000000`, meaning "no version specified". The build stops with an error if the string does not match that format or cannot be determined (for example, git is not installed).
 
 You can run tests using the `make tests` command:
 
