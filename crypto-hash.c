@@ -110,9 +110,9 @@ static void read_hash(int fd, char *buf, size_t size)
 	ret = read(fd, buf, size);
        	if (ret < size) {
 		if (ret < 0)
-               		fatal("sendmsg(): %m");
+               		fatal("read(): %m");
 		else
-			fatal("too few data sent to the kernel!");
+			fatal("too few data received from the kernel!");
        	}
 }
 
