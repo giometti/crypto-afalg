@@ -56,7 +56,7 @@ executing test0001.sh... aes-128-cbc [simple-enc-dec]: OK.
 executing test0002.sh... aes-128-cbc [long-enc-dec]: OK.
 executing test0003.sh... aes-128-cbc [file-enc-dec]: OK.
 ... (truncated output) ...
-all test are OK!
+all tests are OK!
 ```
 
 If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm.
@@ -83,7 +83,7 @@ To view the general help message with a list of available commands:
 
 ```bash
 $ ./crypto-afalg --help
-usage: crypto-afalg [ -d|--debug ] [ -h|--help ] [--version] [ --force-driver <name> ] <command> ...
+usage: crypto-afalg [ -d|--debug ] [ -h|--help ] [ --version ] [ --force-driver <name> ] <command> ...
   <command> can be:
     encrypt <algo> <opts> : encrypt data
     decrypt <algo> <opts> : decrypt data
@@ -97,14 +97,13 @@ For detailed help on the `encrypt` or `decrypt` commands:
 ```bash
 $ ./crypto-afalg encrypt --help
 to see available algos use:
-        crypto-afalg decrypt
+        crypto-afalg encrypt
 to check a kernel algo use:
-        crypto-afalg decrypt check-kalgo <kname>
+        crypto-afalg encrypt check-kalgo <kname>
 to get help use:
-        crypto-afalg decrypt help|-h|--help
+        crypto-afalg encrypt help|-h|--help
 normal usage:
-        crypto-afalg decrypt <algo> <KEY> <IV> | <PASS> [ <SALT> ] [ -i|--iterat
-ions <val> ]
+        crypto-afalg encrypt <algo> <KEY> <IV> | <PASS> [ <SALT> ] [ -i|--iterations <val> ]
 where <KEY> can be one of:
     -K|--key <val>          : hex value key
     -k|--keyfile <name>     : key from file
@@ -186,7 +185,7 @@ $ echo 'Single block msgSecond block msg' | \
 0acbb46a235c5a2b49f4de5e469b5d9964b4a470cb071312a0ae72dbb21d9e9d
 ```
 
-The output is the same as other hashing tools:
+The output is the same as that of other hashing tools:
 
 ```bash
 $ echo 'Single block msgSecond block msg' | \
@@ -224,4 +223,4 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. You can find the full text of the license in the `LICENSE.md` file in this repository or by visiting the [official GNU website](https://www.gnu.org/licenses/gpl-3.0.html).
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. You can find the full text of the license in the `LICENSE` file in this repository or by visiting the [official GNU website](https://www.gnu.org/licenses/gpl-3.0.html).

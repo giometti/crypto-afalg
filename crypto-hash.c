@@ -266,7 +266,7 @@ static void usage_hash(const char *cmd)
 		"to check a kernel algo use:\n\t%s %s check-kalgo <kname>\n",
 							NAME, cmd);
         fprintf(stderr,
-		"to get help use:           \n\t%s %s help|-h|--help\n",
+		"to get help use:\n\t%s %s help|-h|--help\n",
 							NAME, cmd);
         fprintf(stderr,
                 "normal usage:\n\t%s %s <algo> <KEY>\n", NAME, cmd);
@@ -316,7 +316,7 @@ void do_hash(int argc, char *argv[])
 	}
 	if (strcmp("check-kalgo", argv[1]) == 0) {
 		if (argc < 3)
-			fatal("must specify an name");
+			fatal("must specify a name");
 		exit(check_hash(argv[2]) ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
 	if (strcmp("help", argv[1]) == 0 ||

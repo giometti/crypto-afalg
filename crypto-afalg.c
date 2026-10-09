@@ -261,7 +261,7 @@ void num_key(const char *str, struct afalg_key *key)
 			 strncmp(str, "@u", ptype - str) == 0)
 			/* nop */;
 		else
-			fatal("unkown keyring name \"%.*s\"",
+			fatal("unknown keyring name \"%.*s\"",
 					(int) (ptype - str), str);
 
 		ptype++;
@@ -390,7 +390,7 @@ int create_afalg_socket(const char *type, enum afalg_algo_e algo,
 static void usage(void)
 {
         fprintf(stderr,
-                "usage: %s [ -d|--debug ] [ -h|--help ] [--version] "
+                "usage: %s [ -d|--debug ] [ -h|--help ] [ --version ] "
 		"[ --force-driver <name> ] "
 		"<command> ...\n", NAME);
         fprintf(stderr, "  <command> can be:\n"

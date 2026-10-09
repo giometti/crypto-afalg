@@ -306,7 +306,7 @@ static void usage_cipher(const char *cmd)
 		"to check a kernel algo use:\n\t%s %s check-kalgo <kname>\n",
 							NAME, cmd);
         fprintf(stderr,
-		"to get help use:           \n\t%s %s help|-h|--help\n",
+		"to get help use:\n\t%s %s help|-h|--help\n",
 							NAME, cmd);
         fprintf(stderr,
                 "normal usage:\n\t%s %s <algo> <KEY> <IV> | "
@@ -373,7 +373,7 @@ void do_crypt(int argc, char *argv[])
 	}
         if (strcmp("check-kalgo", argv[1]) == 0) {
                 if (argc < 3)
-                        fatal("must specify an name");
+                        fatal("must specify a name");
                 exit(check_cipher(argv[2]) ? EXIT_SUCCESS : EXIT_FAILURE);
         }
 	if (strcmp("help", argv[1]) == 0 ||
@@ -424,7 +424,7 @@ void do_crypt(int argc, char *argv[])
 		case 'V':
 		case 'v':
 			if (iv_len > 0)
-				fatal("IVs already defined!");
+				fatal("IV already defined!");
 			switch (opt) {
 			case 'V':
 				iv_len = parse_iv(optarg,
@@ -467,7 +467,7 @@ void do_crypt(int argc, char *argv[])
 			if (op == ALG_OP_ENCRYPT) {
 				salt_len = generate_salt(salt);
 				if (salt_len == 0)
-					fatal("cannot generate random  salt");
+					fatal("cannot generate random salt");
 				generated_salt = true;
 			} else {
 				salt_len = detect_salt(salt);
@@ -493,7 +493,7 @@ void do_crypt(int argc, char *argv[])
 		akey.raw.len = key_len;
 	}
 	if (iv_len == 0)
-                fatal("no IVs defined!");
+                fatal("no IV defined!");
 	dbg_dump(iv, iv_len, "iv:");
 
 	fd = create_cipher_socket(algo, &akey);
