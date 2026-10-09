@@ -343,6 +343,8 @@ void do_hash(int argc, char *argv[])
 		case 'S':
 		case 'P':
 		case 'p':
+			if (algo_key_len(algo) == 0)
+				fatal("%s takes no key", algo_name(algo));
 			/* An empty passphrase is a key too */
 			if (key_given)
 				fatal("key already defined");
