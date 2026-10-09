@@ -126,6 +126,41 @@ static void __hash_buffer(int s, char buf[], size_t len,
 	close(fd);
 }
 
+/*
+ * The whole file is the key, newlines included: read it up to its end
+ * with no fixed limit and without fsize(), since it may be a pipe
+ */
+static char *read_pass_alloc(const char *file, size_t *len)
+{
+	FILE *f;
+	char *buf = NULL, *p;
+	size_t size = 0, n;
+
+	f = fopen(file, "r");
+	if (!f)
+		fatal("cannot open pass file %s: %m", file);
+	*len = 0;
+	do {
+		if (*len == size) {
+			size += BUF_SIZE;
+			p = realloc(buf, size);
+			if (!p)
+				fatal("cannot allocate memory for pass file %s",
+					file);
+			buf = p;
+		}
+		n = fread(buf + *len, 1, size - *len, f);
+		*len += n;
+	} while (n > 0);
+	if (ferror(f))
+		fatal("cannot read pass file %s", file);
+	if (*len == 0)
+		fatal("pass file %s is empty", file);
+	fclose(f);		/* intentionally ignored */
+
+	return buf;
+}
+
 static void print_hash(uint8_t buf[], size_t size)
 {
 	int i;
@@ -259,7 +294,7 @@ void do_hash(int argc, char *argv[])
         };
         int fd;
 	enum afalg_algo_e algo;
-        char keybuf[MAX_KEY_LEN], *key = keybuf;
+        char keybuf[MAX_KEY_LEN], *key = keybuf, *keyalloc = NULL;
         size_t key_len = 0;
 	bool key_given = false;
 	char ibuf[BUF_SIZE], obuf[MAX_DIGEST_SIZE];
@@ -324,7 +359,8 @@ void do_hash(int argc, char *argv[])
 				key_len = str_key(optarg, &key);
 				break;
 			case 'p':
-				key_len = read_key(optarg, key, 0);
+				keyalloc = read_pass_alloc(optarg, &key_len);
+				key = keyalloc;
 				break;
 			}
 			break;
@@ -352,4 +388,5 @@ void do_hash(int argc, char *argv[])
 	print_hash((uint8_t *) obuf, algo_digest_size(algo));
 
 	close(fd);
+	free(keyalloc);
 }
