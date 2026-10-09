@@ -12,7 +12,7 @@ The Linux kernel includes a powerful Crypto API that allows various components t
 
 This project demonstrates how to use this interface to perform common cryptographic operations with the help of keys from the Linux Keyring system.
 
-The main advantage of using the `AF_ALG` interface is **security**: cryptographic operations and symmetric keys are handled within the kernel, reducing the risk of data exposure in user space.
+The main advantage of using the `AF_ALG` interface is **security**: cryptographic operations are handled within the kernel and, with keys from the Linux Keyring (`-S|--keyserial`), crypto-afalg never holds the key in its memory; how well the key itself is protected depends on its type (`trusted` and `logon` keys cannot be read from user space, `user` keys can).
 
 A secondary advantage is **performance**: there is potential for significant speed improvements by utilizing hardware cryptographic accelerators (e.g., AES-NI, CAAM).
 
@@ -29,9 +29,10 @@ This project provides a basic example of how to interact with the kernel's crypt
 
 To build and run this project, you need:
 
-  * A Linux system with **Kernel 6.2 or newer**, with `AF_ALG` and `KEYS` support enabled.
+  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`) need **Kernel 6.2 or newer** with `KEYS` support.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
+  * The keyutils library and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
   * git, used by the build to compute the version string.
   * bash, for the version helper and the tests.
   * GNU make 4.2 or newer (for `.SHELLSTATUS`).
@@ -97,25 +98,25 @@ For detailed help on the `encrypt` or `decrypt` commands:
 ```bash
 $ ./crypto-afalg encrypt --help
 to see available algos use:
-        crypto-afalg encrypt
+	crypto-afalg encrypt
 to check a kernel algo use:
-        crypto-afalg encrypt check-kalgo <kname>
+	crypto-afalg encrypt check-kalgo <kname>
 to get help use:
-        crypto-afalg encrypt help|-h|--help
+	crypto-afalg encrypt help|-h|--help
 normal usage:
-        crypto-afalg encrypt <algo> <KEY> <IV> | <PASS> [ <SALT> ] [ -i|--iterations <val> ]
+	crypto-afalg encrypt <algo> <KEY> <IV> | <PASS> [ <SALT> ] [ -i|--iterations <val> ]
 where <KEY> can be one of:
     -K|--key <val>          : hex value key
     -k|--keyfile <name>     : key from file
     -S|--keyserial <val>    : key from keyring
 where <IV> can be one of:
-    -V|--iv <str>           : iv
+    -V|--iv <val>           : hex value iv
     -v|--ivfile <name>      : iv from file
 where <PASS> can be one of:
     -P|--pass <str>         : passkey
     -p|--passfile <name>    : passkey from file
 where <SALT> can be one of:
-    -T|--salt <str>         : salt
+    -T|--salt <val>         : hex value salt
     -t|--saltfile <name>    : salt from file
 NOTE: keyring key can be:
       - a simple serial number, or
@@ -136,7 +137,7 @@ $ ./crypto-afalg decrypt aes-128-cbc \
     -V 3dafba429d9eb430b422da802c9fac41 < file.enc > file.txt
 ```
 
-All encrypted files are OpenSSL compatible, so you can test them like this:
+Encrypted files are OpenSSL compatible (except with `caam(aes-256-cbc)`, whose key is a CAAM tagged key), so you can test them like this:
 
 ```bash
 $ echo 'Test data' | ./crypto-afalg encrypt aes-128-cbc \
@@ -171,10 +172,14 @@ to get help use:
 normal usage:
 	crypto-afalg hash <algo> <KEY>
 where <KEY> can be one of:
-    -K|--key <val>        : hex value key
-    -k|--keyfile <name>   : key from file
-    -P|--pass <str>       : passkey
-    -p|--passfile <name>  : passkey from file
+    -K|--key <val>          : hex value key
+    -k|--keyfile <name>     : key from file
+    -S|--keyserial <val>    : key from keyring
+    -P|--pass <str>         : passkey
+    -p|--passfile <name>    : passkey from file
+NOTE: keyring key can be:
+      - a simple serial number, or
+      - a symbolic name as [<keyring>,]<type>,<name>
 ```
 
 To hash data:
@@ -214,10 +219,10 @@ crypto-afalg:   name                kernel-name    block(B)   key(B)
 crypto-afalg: - sha-256             sha256            64        0
 crypto-afalg: - hmac-sha-256        hmac(sha256)      64        32
 crypto-afalg:   NOTE: 'x' means 'not available'
-crypto-afalg:   NOTE: Algorithms with a non-zero key size require a key.
+crypto-afalg:   NOTE: algo with key(B) > 0 requires a key
 ```
 
-By using the `--force-driver` option, you can force the use of a specific kernel algorithm despite its priority (see `/proc/crypto`).
+By using the `--force-driver` option, you can force the use of a specific kernel driver of an algorithm despite its priority (see `/proc/crypto`).
 
 -----
 

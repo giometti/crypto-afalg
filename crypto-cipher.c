@@ -319,14 +319,14 @@ static void usage_cipher(const char *cmd)
                 "    -S|--keyserial <val>    : key from keyring\n"
 #endif
                 "where <IV> can be one of:\n"
-                "    -V|--iv <str>           : iv\n"
+                "    -V|--iv <val>           : hex value iv\n"
                 "    -v|--ivfile <name>      : iv from file\n");
         fprintf(stderr,
                 "where <PASS> can be one of:\n"
                 "    -P|--pass <str>         : passkey\n"
                 "    -p|--passfile <name>    : passkey from file\n"
                 "where <SALT> can be one of:\n"
-                "    -T|--salt <str>         : salt\n"
+                "    -T|--salt <val>         : hex value salt\n"
                 "    -t|--saltfile <name>    : salt from file\n");
 #ifdef ALG_SET_KEY_BY_KEY_SERIAL
 	fprintf(stderr,
