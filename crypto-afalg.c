@@ -214,7 +214,7 @@ size_t read_file(const char *label, const char *file, char *data, size_t len)
 	    ((len == 0) && (ret <= 0)))
 			fatal("cannot read %s file", label);
 
-        return len;
+        return ret;
 }
 
 size_t read_key(const char *file, char *key, size_t key_len)
