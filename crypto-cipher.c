@@ -203,6 +203,9 @@ static size_t read_data(size_t block_size, char *ibuf, int cmd,
 	size_t size;
 
 	size = fread(ibuf, 1, BUF_SIZE, stdin);
+	/* A short read is the end of the input only if it is not an error */
+	if (size < BUF_SIZE && ferror(stdin))
+		fatal("cannot read input: %m");
 
 	if (size > 0 || cmd == ALG_OP_DECRYPT) {
 		*last_size = size;

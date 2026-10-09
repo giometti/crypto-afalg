@@ -85,6 +85,9 @@ static size_t read_data(size_t block_size, char *ibuf)
 	size_t size;
 
 	size = fread(ibuf, 1, BUF_SIZE, stdin);
+	/* A short read is the end of the input only if it is not an error */
+	if (size < BUF_SIZE && ferror(stdin))
+		fatal("cannot read input: %m");
 	if (size > 0)
 		return size;
 	return 0;
