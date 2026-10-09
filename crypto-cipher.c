@@ -321,7 +321,7 @@ void do_crypt(int argc, char *argv[])
                 { "passfile",	required_argument,	NULL, 'p' },
                 { "salt",	required_argument,	NULL, 'T' },
                 { "saltfile",	required_argument,	NULL, 't' },
-                { "iterations",	required_argument,	NULL, 't' },
+                { "iterations",	required_argument,	NULL, 'i' },
                 { 0, 0, 0, 0 }
         };
         int op, fd;
