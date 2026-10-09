@@ -330,6 +330,7 @@ void do_crypt(int argc, char *argv[])
 	size_t key_len = 0, iv_len = 0;
 	char pass[MAX_KEY_LEN], salt[SALT_LEN];
 	size_t pass_len = 0, salt_len = 0;
+	char *eol;
 	int iterations = 10000;	/* the default */
 	bool generated_salt = false;
 	char ibuf[BUF_SIZE], obuf[BUF_SIZE];
@@ -411,6 +412,10 @@ void do_crypt(int argc, char *argv[])
 			break;
                 case 'p':
 			pass_len = read_key(optarg, pass, 0);
+			/* As openssl enc -pass file: only the first line */
+			eol = memchr(pass, '\n', pass_len);
+			if (eol)
+				pass_len = eol - pass;
 			break;
 
                 case 'T':
