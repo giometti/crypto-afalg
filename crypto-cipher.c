@@ -505,13 +505,20 @@ void do_crypt(int argc, char *argv[])
 		if (nread == 0)
 			break;
 
-		size = pad_data(algo_block_size(algo), ibuf, nread);
+		if (op == ALG_OP_DECRYPT) {
+			if (nread % algo_block_size(algo))
+				fatal("bad decrypt (wrong final block length)");
+			size = nread;
+		} else
+			size = pad_data(algo_block_size(algo), ibuf, nread);
 		BUG_ON(size % algo_block_size(algo));
 		process_data(fd, ibuf, obuf, size);
 			
 		write_data(algo_block_size(algo), obuf, size, op,
 						unwritten, &last_unwritten);
 	} while (nread > 0);
+	if (op == ALG_OP_DECRYPT && last_unwritten == 0)
+		fatal("bad decrypt (wrong final block length)");
 	if (last_unwritten)
 		write_data(algo_block_size(algo), NULL, 0, op,
 						unwritten, &last_unwritten);
