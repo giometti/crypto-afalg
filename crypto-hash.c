@@ -177,7 +177,11 @@ size_t hash_buffer(char buf[], size_t len,
 		enum afalg_algo_e algo, char key[], size_t key_len,
 		char hash[], size_t hash_len)
 {
-	int fd = create_hash_socket(algo, key, key_len);
+	struct afalg_key akey = {
+		.type = AFALG_KEY_RAW,
+		.raw = { .data = key, .len = key_len },
+	};
+	int fd = create_hash_socket(algo, &akey);
 
 	process_data(fd, buf, len);
 	read_hash(fd, hash, algo_digest_size(algo));
@@ -198,9 +202,13 @@ int pbkdf2(char pass[], size_t pass_len, char salt[], size_t salt_len,
 	int s, j, i;
 	int derived_len = key_len + iv_len;
 	char derived[derived_len];
+	struct afalg_key akey = {
+		.type = AFALG_KEY_RAW,
+		.raw = { .data = pass, .len = pass_len },
+	};
 
 	/* Init the AF_ALG context for HMAC-SHA256 with a given pass key */
-	s = __init_hash_socket(algo, pass, pass_len);
+	s = __init_hash_socket(algo, &akey);
 
 	memcpy(salt_i, salt, salt_len);
 	while (current_len < derived_len) {
@@ -297,6 +305,7 @@ void do_hash(int argc, char *argv[])
         char keybuf[MAX_KEY_LEN], *key = keybuf, *keyalloc = NULL;
         size_t key_len = 0;
 	bool key_given = false;
+	struct afalg_key akey = { .type = AFALG_KEY_RAW };
 	char ibuf[BUF_SIZE], obuf[MAX_DIGEST_SIZE];
 	size_t nread;
 
@@ -350,7 +359,7 @@ void do_hash(int argc, char *argv[])
 				break;
 			case 'S':
 #ifdef ALG_SET_KEY_BY_KEY_SERIAL
-				key_len = num_key(optarg, key);
+				num_key(optarg, &akey);
 #else
 				fatal("option -S|--keyserial unsupported");
 #endif
@@ -371,9 +380,13 @@ void do_hash(int argc, char *argv[])
         }
 	if (algo_key_len(algo) > 0 && !key_given)
                 fatal("no key defined!");
-	dbg_dump(key, key_len, "key:");
+	if (akey.type == AFALG_KEY_RAW) {
+		dbg_dump(key, key_len, "key:");
+		akey.raw.data = key;
+		akey.raw.len = key_len;
+	}
 
-	fd = create_hash_socket(algo, key_given ? key : NULL, key_len);
+	fd = create_hash_socket(algo, key_given ? &akey : NULL);
 
 	BUG_ON(algo_digest_size(algo) > MAX_DIGEST_SIZE);
 	do {

@@ -227,7 +227,7 @@ size_t read_key(const char *file, char *key, size_t key_len)
  *     - <num>
  *     - [<keyring>,]<type>,<name>
  */
-size_t num_key(const char *str, char *key)
+void num_key(const char *str, struct afalg_key *key)
 {
 	char *keyring = "@u";
 	char type[64];
@@ -284,9 +284,8 @@ size_t num_key(const char *str, char *key)
 
 exit:
 	dbg("key_id=%ld", (long) num);
-	*((int32_t *) key) = num;
-
-	return sizeof(num);
+	key->type = AFALG_KEY_SERIAL;
+	key->serial = num;
 }
 
 size_t str_key(char *str, char **key)
@@ -296,19 +295,12 @@ size_t str_key(char *str, char **key)
 }
 
 int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
-			char *key, size_t key_len)
+			const struct afalg_key *key)
 {
         int s;
         struct sockaddr_alg sa = {
                 .salg_family = AF_ALG,
         };
-        int sockopt = key_len == sizeof(int32_t) ?
-#ifdef ALG_SET_KEY_BY_KEY_SERIAL
-                        ALG_SET_KEY_BY_KEY_SERIAL
-#else
-                        0
-#endif
-                        : ALG_SET_KEY;
         int ret;
 
 	if (!is_in_proc_crypto(type, algo_kname(algo), use_driver)) {
@@ -336,14 +328,32 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
                 fatal("bind(): %m");
 
 	/*
-	 * A NULL key means none; an empty one is still set, since a keyed
-	 * algorithm refuses to work until a key has been set.
+	 * A NULL key means none; an empty raw one is still set, since a
+	 * keyed algorithm refuses to work until a key has been set.
 	 */
-        if (key) {
-                ret = setsockopt(s, SOL_ALG, sockopt, key, key_len);
-                if (ret < 0)
-                        fatal("setsockopt(ALG_SET_KEY): %m");
-        }
+	if (!key)
+		return s;
+
+	switch (key->type) {
+	case AFALG_KEY_RAW:
+		ret = setsockopt(s, SOL_ALG, ALG_SET_KEY,
+				key->raw.data, key->raw.len);
+		if (ret < 0)
+			fatal("setsockopt(ALG_SET_KEY): %m");
+		break;
+	case AFALG_KEY_SERIAL:
+#ifdef ALG_SET_KEY_BY_KEY_SERIAL
+		ret = setsockopt(s, SOL_ALG, ALG_SET_KEY_BY_KEY_SERIAL,
+				&key->serial, sizeof(key->serial));
+		if (ret < 0)
+			fatal("setsockopt(ALG_SET_KEY_BY_KEY_SERIAL): %m");
+#else
+		BUG();
+#endif
+		break;
+	default:
+		BUG();
+	}
 
         return s;
 }
@@ -360,12 +370,12 @@ int __get_afalg_socket(int s)
 }
 
 int create_afalg_socket(const char *type, enum afalg_algo_e algo,
-			char *key, size_t key_len)
+			const struct afalg_key *key)
 {
         int s;
         int ret;
 
-	s = __init_afalg_socket(type, algo, key, key_len);
+	s = __init_afalg_socket(type, algo, key);
 
         ret = __get_afalg_socket(s);
         close(s);

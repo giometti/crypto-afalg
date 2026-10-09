@@ -29,6 +29,7 @@
 #include <linux/if_alg.h>
 #include <linux/socket.h>
 #include <string.h>
+#include <keyutils.h>
 #include "misc.h"
 
 #ifndef SOL_ALG
@@ -73,6 +74,21 @@ struct afalg_algo_data_s {
 };
 extern const struct afalg_algo_data_s afalg_algo_data[];
 
+/* A key carries its own type: raw bytes, or a keyring key by serial */
+struct afalg_key {
+	enum {
+		AFALG_KEY_RAW,
+		AFALG_KEY_SERIAL,
+	} type;
+	union {
+		struct {
+			const char *data;
+			size_t len;
+		} raw;
+		key_serial_t serial;
+	};
+};
+
 extern char *use_driver;
 
 #define algo_name(algo)		afalg_algo_data[algo].name
@@ -95,20 +111,20 @@ extern size_t parse_key(const char *str, char *key, size_t key_len);
 extern size_t read_file(const char *label,
                                 const char *file, char *data, size_t len);
 extern size_t read_key(const char *file, char *key, size_t key_len);
-extern size_t num_key(const char *str, char *key);
+extern void num_key(const char *str, struct afalg_key *key);
 extern size_t str_key(char *str, char **key);
 
 extern int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
-		char *key, size_t key_len);
+		const struct afalg_key *key);
 extern int __get_afalg_socket(int s);
 extern int create_afalg_socket(const char *type, enum afalg_algo_e algo,
-		char *key, size_t key_len);
-#define create_cipher_socket(algo, key, len) \
-		create_afalg_socket("skcipher", algo, key, len)
-#define __init_hash_socket(algo, key, len) \
-		__init_afalg_socket("hash", algo, key, len)
-#define create_hash_socket(algo, key, len) \
-		create_afalg_socket("hash", algo, key, len)
+		const struct afalg_key *key);
+#define create_cipher_socket(algo, key) \
+		create_afalg_socket("skcipher", algo, key)
+#define __init_hash_socket(algo, key) \
+		__init_afalg_socket("hash", algo, key)
+#define create_hash_socket(algo, key) \
+		create_afalg_socket("hash", algo, key)
 
 /* Exported functions */
 extern size_t hash_buffer(char buf[], size_t len,

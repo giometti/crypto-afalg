@@ -358,6 +358,7 @@ void do_crypt(int argc, char *argv[])
 	enum afalg_algo_e algo;
 	char key[MAX_KEY_LEN], iv[MAX_IV_LEN];
 	size_t key_len = 0, iv_len = 0;
+	struct afalg_key akey = { .type = AFALG_KEY_RAW };
 	char passbuf[MAX_PASS_LEN], *pass = passbuf, salt[SALT_LEN];
 	size_t pass_len = 0, salt_len = 0;
 	int iterations = 10000;	/* the default */
@@ -399,7 +400,7 @@ void do_crypt(int argc, char *argv[])
 		case 'K':
 		case 'k':
 		case 'S':
-			if (key_len > 0)
+			if (key_len > 0 || akey.type == AFALG_KEY_SERIAL)
 				fatal("key already defined");
 			switch (opt) {
 			case 'K':
@@ -412,7 +413,7 @@ void do_crypt(int argc, char *argv[])
 				break;
 			case 'S':
 #ifdef ALG_SET_KEY_BY_KEY_SERIAL
-				key_len = num_key(optarg, key);
+				num_key(optarg, &akey);
 #else
 				fatal("option -S|--keyserial unsupported");
 #endif
@@ -477,20 +478,25 @@ void do_crypt(int argc, char *argv[])
 		dbg_dump(pass, pass_len, "pass:");
 		dbg_dump(salt, salt_len, "salt:");
 		key_len = algo_key_len(algo);
+		akey.type = AFALG_KEY_RAW;
 		iv_len = algo_iv_len(algo);
 		pbkdf2(pass, pass_len, salt, salt_len, iterations,
 			key, key_len, iv, iv_len);
 
 	} else if (salt_len > 0)
 		fatal("salt specified with no pass key!");
-	if (key_len == 0)
-                fatal("no key defined!");
-	dbg_dump(key, key_len, "key:");
+	if (akey.type == AFALG_KEY_RAW) {
+		if (key_len == 0)
+			fatal("no key defined!");
+		dbg_dump(key, key_len, "key:");
+		akey.raw.data = key;
+		akey.raw.len = key_len;
+	}
 	if (iv_len == 0)
                 fatal("no IVs defined!");
 	dbg_dump(iv, iv_len, "iv:");
 
-	fd = create_cipher_socket(algo, key, key_len);
+	fd = create_cipher_socket(algo, &akey);
 	init_afalg_data(fd, op, iv, iv_len);
 
 	if (generated_salt)
