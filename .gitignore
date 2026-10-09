@@ -1,3 +1,4 @@
 *.d
 *.o
 crypto-afalg
+.version
