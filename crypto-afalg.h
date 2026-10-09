@@ -96,7 +96,7 @@ extern size_t read_file(const char *label,
                                 const char *file, char *data, size_t len);
 extern size_t read_key(const char *file, char *key, size_t key_len);
 extern size_t num_key(const char *str, char *key);
-extern size_t str_key(const char *str, char *key);
+extern size_t str_key(char *str, char **key);
 
 extern int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 		char *key, size_t key_len);

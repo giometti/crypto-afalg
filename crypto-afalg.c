@@ -289,9 +289,9 @@ exit:
 	return sizeof(num);
 }
 
-size_t str_key(const char *str, char *key)
+size_t str_key(char *str, char **key)
 {
-	strcpy(key, str);
+	*key = str;
 	return strlen(str);
 }
 
@@ -335,7 +335,11 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
         if (ret < 0)
                 fatal("bind(): %m");
 
-        if (key_len > 0) {
+	/*
+	 * A NULL key means none; an empty one is still set, since a keyed
+	 * algorithm refuses to work until a key has been set.
+	 */
+        if (key) {
                 ret = setsockopt(s, SOL_ALG, sockopt, key, key_len);
                 if (ret < 0)
                         fatal("setsockopt(ALG_SET_KEY): %m");

@@ -328,7 +328,7 @@ void do_crypt(int argc, char *argv[])
 	enum afalg_algo_e algo;
 	char key[MAX_KEY_LEN], iv[MAX_IV_LEN];
 	size_t key_len = 0, iv_len = 0;
-	char pass[MAX_KEY_LEN], salt[SALT_LEN];
+	char passbuf[MAX_KEY_LEN], *pass = passbuf, salt[SALT_LEN];
 	size_t pass_len = 0, salt_len = 0;
 	char *eol;
 	int iterations = 10000;	/* the default */
@@ -408,9 +408,10 @@ void do_crypt(int argc, char *argv[])
 			break;
 
                 case 'P':
-			pass_len = str_key(optarg, pass);
+			pass_len = str_key(optarg, &pass);
 			break;
                 case 'p':
+			pass = passbuf;
 			pass_len = read_key(optarg, pass, 0);
 			/* As openssl enc -pass file: only the first line */
 			eol = memchr(pass, '\n', pass_len);

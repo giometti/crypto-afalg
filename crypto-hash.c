@@ -259,8 +259,9 @@ void do_hash(int argc, char *argv[])
         };
         int fd;
 	enum afalg_algo_e algo;
-        char key[MAX_KEY_LEN];
+        char keybuf[MAX_KEY_LEN], *key = keybuf;
         size_t key_len = 0;
+	bool key_given = false;
 	char ibuf[BUF_SIZE], obuf[MAX_DIGEST_SIZE];
 	size_t nread;
 
@@ -298,8 +299,11 @@ void do_hash(int argc, char *argv[])
 		case 'S':
 		case 'P':
 		case 'p':
-			if (key_len > 0)
+			/* An empty passphrase is a key too */
+			if (key_given)
 				fatal("key already defined");
+			key_given = true;
+			key = keybuf;
 			switch (opt) {
 			case 'K':
 				key_len = parse_key(optarg,
@@ -317,7 +321,7 @@ void do_hash(int argc, char *argv[])
 #endif
 				break;
 			case 'P':
-				key_len = str_key(optarg, key);
+				key_len = str_key(optarg, &key);
 				break;
 			case 'p':
 				key_len = read_key(optarg, key, 0);
@@ -329,11 +333,11 @@ void do_hash(int argc, char *argv[])
                         fatal("wrong option! Use -h for help");
                 }
         }
-	if (algo_key_len(algo) > 0 && (key_len == 0))
+	if (algo_key_len(algo) > 0 && !key_given)
                 fatal("no key defined!");
 	dbg_dump(key, key_len, "key:");
 
-	fd = create_hash_socket(algo, key, key_len);
+	fd = create_hash_socket(algo, key_given ? key : NULL, key_len);
 
 	BUG_ON(algo_digest_size(algo) > MAX_DIGEST_SIZE);
 	do {
