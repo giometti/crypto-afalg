@@ -272,14 +272,14 @@ static void write_data(size_t block_size, char *obuf, size_t size, int cmd,
 	if (cmd == ALG_OP_DECRYPT) {
 		if (size > block_size) {
 			if (*last_unwritten > 0)
-				fwrite(unwritten, 1, *last_unwritten, stdout);
+				write_output(unwritten, *last_unwritten);
 			memcpy(unwritten, obuf + size - block_size, block_size);
 			size -= block_size;
 			*last_unwritten = block_size;
 
-			fwrite(obuf, 1, size, stdout);
+			write_output(obuf, size);
 		} else if (size == block_size) {
-			fwrite(unwritten, 1, *last_unwritten, stdout);
+			write_output(unwritten, *last_unwritten);
 			memcpy(unwritten, obuf, size);
 			*last_unwritten = size;
 		} else if (size == 0) {
@@ -290,11 +290,11 @@ static void write_data(size_t block_size, char *obuf, size_t size, int cmd,
 			for (i = block_size - n; i < block_size; i++)
 				if ((unsigned char) unwritten[i] != n)
 					fatal("bad decrypt (wrong padding)");
-			fwrite(unwritten, 1, block_size - n, stdout);
+			write_output(unwritten, block_size - n);
 		} else
 			BUG();
 	} else
-		fwrite(obuf, 1, size, stdout);
+		write_output(obuf, size);
 }
 
 /*
@@ -531,6 +531,7 @@ void do_crypt(int argc, char *argv[])
 	if (last_unwritten)
 		write_data(algo_block_size(algo), NULL, 0, op,
 						unwritten, &last_unwritten);
+	flush_output();
 
 	close(fd);
 }

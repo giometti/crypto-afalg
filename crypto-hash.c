@@ -166,11 +166,13 @@ static char *read_pass_alloc(const char *file, size_t *len)
 
 static void print_hash(uint8_t buf[], size_t size)
 {
+	char hex[2 * MAX_DIGEST_SIZE + 1];
 	int i;
 
 	for (i = 0; i < size; i++)
-		printf("%02x", buf[i]);
-	printf("\n");
+		sprintf(hex + 2 * i, "%02x", buf[i]);
+	hex[2 * size] = '\n';
+	write_output(hex, 2 * size + 1);
 }
 
 /*
@@ -404,6 +406,7 @@ void do_hash(int argc, char *argv[])
 
 	read_hash(fd, obuf, algo_digest_size(algo));
 	print_hash((uint8_t *) obuf, algo_digest_size(algo));
+	flush_output();
 
 	close(fd);
 	free(keyalloc);

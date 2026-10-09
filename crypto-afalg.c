@@ -90,6 +90,22 @@ size_t fsize(FILE *f)
         return s;
 }
 
+/*
+ * Every write to the output goes through here: a short write, or an error
+ * that only shows when stdout is flushed, must not end with exit status 0
+ */
+void write_output(const void *buf, size_t len)
+{
+	if (fwrite(buf, 1, len, stdout) != len)
+		fatal("cannot write output: %m");
+}
+
+void flush_output(void)
+{
+	if (fflush(stdout) != 0 || ferror(stdout))
+		fatal("cannot write output: %m");
+}
+
 bool is_in_proc_crypto(const char *type, const char *name, const char *driver)
 {
         FILE* f;

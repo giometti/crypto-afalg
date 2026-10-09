@@ -103,6 +103,8 @@ extern char *use_driver;
 
 /* Common functions */
 extern size_t fsize(FILE *f);
+extern void write_output(const void *buf, size_t len);
+extern void flush_output(void);
 extern bool is_in_proc_crypto(const char *type, const char *name,
 				const char *driver);
 extern size_t parse_str(const char *label,
