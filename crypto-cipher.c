@@ -116,15 +116,26 @@ static size_t read_salt(const char *file, char *salt, size_t salt_len)
 static size_t read_pass(const char *file, char *pass, size_t size)
 {
 	FILE *f;
+	size_t len;
+	int c;
 
 	f = fopen(file, "r");
 	if (!f)
 		fatal("cannot open pass file %s: %m", file);
 	if (!fgets(pass, size, f))
 		fatal("cannot read pass file %s", file);
+
+	/* A full buffer is a truncation only if the line goes on */
+	len = strcspn(pass, "\n");
+	if (len == size - 1) {
+		c = fgetc(f);
+		if (c != EOF && c != '\n')
+			err("warning: passphrase in %s truncated to %zu "
+				"characters, as openssl does", file, len);
+	}
 	fclose(f);		/* intentionally ignored */
 
-	return strcspn(pass, "\n");
+	return len;
 }
 
 static void init_afalg_data(int fd, int cmd, char *iv, size_t iv_len)
