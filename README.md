@@ -35,6 +35,7 @@ To build and run this project, you need:
   * The keyutils library and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
   * git, used by the build to compute the version string.
   * bash, for the version helper and the tests.
+  * binutils (`readelf`, `nm`), for the tests.
   * GNU make 4.2 or newer (for `.SHELLSTATUS`).
 
 ## How to Build
@@ -45,6 +46,12 @@ Navigate to the project directory and use `make` to compile the application.
 $ git clone https://github.com/giometti/crypto-afalg.git
 $ cd crypto-afalg
 $ make
+```
+
+The build produces the tool, `crypto-afalg`, and the shared library it uses, `libafalg.so.0` (see [libafalg](#libafalg)). To run the tool from the build directory without installing it, tell the dynamic loader where the library is:
+
+```bash
+$ export LD_LIBRARY_PATH=$PWD
 ```
 
 The version string is stamped into the binary at build time by `tools/git-version.sh`, from `git describe --tags --long --match "v*" --dirty` (for example `v1.0.0-14-g93990b9`, with a trailing `-dirty` for a modified tree). A repository without `v*` tags gives `v0.0.0-<commits>-g<hash>`, and a source tree outside any git repository of its own gives `v0.0.0-0-g0000000`, meaning "no version specified". The build stops with an error if the string does not match that format or cannot be determined (for example, git is not installed).
@@ -61,6 +68,16 @@ all tests are OK!
 ```
 
 If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm.
+
+## How to Install
+
+```bash
+$ make install
+```
+
+installs `crypto-afalg` into `PREFIX` (default `/usr/bin`), the library `libafalg.so.0` and its link-time name `libafalg.so` into `LIBDIR` (default `/usr/lib`), and the header `afalg.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files.
+
+`LIBDIR` must be a directory the dynamic loader searches: after installing into one it finds only through its cache, such as `/usr/local/lib`, run `ldconfig` as root.
 
 ## How to Use
 
@@ -225,6 +242,10 @@ crypto-afalg:   NOTE: algo with key(B) > 0 requires a key
 ```
 
 By using the `--force-driver` option, you can force the use of a specific kernel driver of an algorithm despite its priority (see `/proc/crypto`).
+
+## libafalg
+
+`libafalg.so.0` is the `AF_ALG` socket layer of crypto-afalg, as a shared library for other tools too. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libafalg.md](doc/libafalg.md).
 
 -----
 
