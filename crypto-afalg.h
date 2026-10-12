@@ -25,16 +25,10 @@
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
-#include <sys/socket.h>
 #include <linux/if_alg.h>
-#include <linux/socket.h>
 #include <string.h>
-#include <keyutils.h>
+#include "afalg.h"
 #include "misc.h"
-
-#ifndef SOL_ALG
-#define SOL_ALG                 279
-#endif
 
 #define BUF_SIZE                PAGE_SIZE
 
@@ -73,21 +67,6 @@ struct afalg_algo_data_s {
 	};
 };
 extern const struct afalg_algo_data_s afalg_algo_data[];
-
-/* A key carries its own type: raw bytes, or a keyring key by serial */
-struct afalg_key {
-	enum {
-		AFALG_KEY_RAW,
-		AFALG_KEY_SERIAL,
-	} type;
-	union {
-		struct {
-			const char *data;
-			size_t len;
-		} raw;
-		key_serial_t serial;
-	};
-};
 
 extern char *use_driver;
 

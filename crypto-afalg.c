@@ -324,9 +324,6 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 			const struct afalg_key *key)
 {
         int s;
-        struct sockaddr_alg sa = {
-                .salg_family = AF_ALG,
-        };
         int ret;
 
 	if (!is_in_proc_crypto(type, algo_kname(algo), use_driver)) {
@@ -340,16 +337,12 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 					algo_kname(algo), type);
 	}
 
-        strcpy((char *) sa.salg_type, type);
-        strcpy((char *) sa.salg_name, use_driver ?
-					use_driver : algo_kname(algo));
-
-        ret = socket(AF_ALG, SOCK_SEQPACKET, 0);
+        ret = afalg_socket();
         if (ret < 0)
                 fatal("socket(AF_ALG): %m");
         s = ret;
 
-        ret = bind(s, (struct sockaddr *)&sa, sizeof(sa));
+        ret = afalg_bind(s, type, use_driver ? use_driver : algo_kname(algo));
         if (ret < 0)
                 fatal("bind(): %m");
 
@@ -360,26 +353,10 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 	if (!key)
 		return s;
 
-	switch (key->type) {
-	case AFALG_KEY_RAW:
-		ret = setsockopt(s, SOL_ALG, ALG_SET_KEY,
-				key->raw.data, key->raw.len);
-		if (ret < 0)
-			fatal("setsockopt(ALG_SET_KEY): %m");
-		break;
-	case AFALG_KEY_SERIAL:
-#ifdef ALG_SET_KEY_BY_KEY_SERIAL
-		ret = setsockopt(s, SOL_ALG, ALG_SET_KEY_BY_KEY_SERIAL,
-				&key->serial, sizeof(key->serial));
-		if (ret < 0)
-			fatal("setsockopt(ALG_SET_KEY_BY_KEY_SERIAL): %m");
-#else
-		BUG();
-#endif
-		break;
-	default:
-		BUG();
-	}
+	ret = afalg_set_key(s, key);
+	if (ret < 0)
+		fatal("setsockopt(%s): %m", key->type == AFALG_KEY_SERIAL ?
+				"ALG_SET_KEY_BY_KEY_SERIAL" : "ALG_SET_KEY");
 
         return s;
 }
@@ -388,7 +365,7 @@ int __get_afalg_socket(int s)
 {
 	int ret;
 
-	ret = accept(s, NULL, 0);
+	ret = afalg_accept(s);
 	if (ret < 0)
 		fatal("accept(): %m");
 

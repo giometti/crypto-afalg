@@ -140,39 +140,8 @@ static size_t read_pass(const char *file, char *pass, size_t size)
 
 static void init_afalg_data(int fd, int cmd, char *iv, size_t iv_len)
 {
-	struct msghdr msg = {};
-	struct cmsghdr *cmsg;
-	char cbuf[CMSG_SPACE(4) + CMSG_SPACE(20)] = {0};
-	struct af_alg_iv *iv_data;
-	struct iovec iov;
-	int ret;
-
-	msg.msg_control = cbuf;
-	msg.msg_controllen = sizeof(cbuf);
-
-	cmsg = CMSG_FIRSTHDR(&msg);
-	cmsg->cmsg_level = SOL_ALG;
-	cmsg->cmsg_type = ALG_SET_OP;
-	cmsg->cmsg_len = CMSG_LEN(4);
-	*(__u32 *) CMSG_DATA(cmsg) = cmd;
-
-	cmsg = CMSG_NXTHDR(&msg, cmsg);
-	cmsg->cmsg_level = SOL_ALG;
-	cmsg->cmsg_type = ALG_SET_IV;
-	cmsg->cmsg_len = CMSG_LEN(20);
-	iv_data = (void *) CMSG_DATA(cmsg);
-	iv_data->ivlen = 16;
-	memcpy(iv_data->iv, iv, iv_len);
-
-	iov.iov_base = NULL;
-	iov.iov_len = 0;
-
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-
-	ret = sendmsg(fd, &msg, MSG_MORE);
-        if (ret < 0)
-                fatal("sendmsg(): %m");
+	if (afalg_set_op_iv(fd, cmd, iv, iv_len) < 0)
+		fatal("sendmsg(): %m");
 }
 
 static size_t detect_salt(char *salt)
@@ -235,14 +204,14 @@ static void process_data(int fd, char *ibuf, char *obuf, size_t size)
 {
 	int ret;
 
-	ret = send(fd, ibuf, size, MSG_MORE);
+	ret = afalg_send(fd, ibuf, size);
        	if (ret < size) {
 		if (ret < 0)
                		fatal("sendmsg(): %m");
 		else
 			fatal("too few data sent to the kernel!");
        	}
-	ret = read(fd, obuf, size);
+	ret = afalg_recv(fd, obuf, size);
        	if (ret < size) {
 		if (ret < 0)
                		fatal("read(): %m");

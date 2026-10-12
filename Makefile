@@ -1,6 +1,8 @@
 TARGET = crypto-afalg
 OBJS = crypto-afalg.o crypto-cipher.o crypto-hash.o
-DEPS := $(OBJS:.o=.d)
+LIB = libafalg.so.0
+LIB_OBJS = afalg.o
+DEPS := $(OBJS:.o=.d) $(LIB_OBJS:.o=.d)
 
 # The directory of this Makefile: the version belongs to the source tree it
 # lives in, also when the build runs elsewhere (make -C <dir> -f <this>)
@@ -25,11 +27,17 @@ CFLAGS += -D__CRYPTO_AFALG_VERSION__=\"$(VERSION)\"
 LDLIBS += -lkeyutils
 
 PREFIX ?= /usr/bin
+LIBDIR ?= /usr/lib
+INCLUDEDIR ?= /usr/include
 
 all: $(TARGET)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -MP $< -o $@ -c
+
+# A shared object needs -fPIC also when CFLAGS comes from the command line;
+# hidden visibility leaves out of the interface what afalg.c does not mark
+$(LIB_OBJS): override CFLAGS += -fPIC -fvisibility=hidden
 
 # Rewritten only when the version changes, so that a new commit rebuilds
 # the object that carries the version string
@@ -37,21 +45,32 @@ all: $(TARGET)
 	@echo '$(VERSION)' | cmp -s - $@ || echo '$(VERSION)' > $@
 crypto-afalg.o: .version
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LFLAGS) $(LDFLAGS) $(LDLIBS)
+$(LIB): $(LIB_OBJS)
+	$(CC) $(CFLAGS) -shared -Wl,-soname,$(LIB) -o $@ $(LIB_OBJS) \
+		$(LFLAGS) $(LDFLAGS)
+
+$(TARGET): $(OBJS) $(LIB)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LIB) $(LFLAGS) $(LDFLAGS) $(LDLIBS)
 
 tests:
 	@make --no-print-directory -C tests tests
 
-install: $(TARGET)
-	mkdir -p $(DESTDIR)$(PREFIX)
-	cp $< $(DESTDIR)$(PREFIX)/$(TARGET)
+# install(1) replaces the library instead of writing into it, so a process
+# that has it mapped keeps its pages
+install: $(TARGET) $(LIB)
+	mkdir -p $(DESTDIR)$(PREFIX) $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)
+	cp $(TARGET) $(DESTDIR)$(PREFIX)/$(TARGET)
+	install -m 0755 $(LIB) $(DESTDIR)$(LIBDIR)/$(LIB)
+	ln -sf $(LIB) $(DESTDIR)$(LIBDIR)/libafalg.so
+	install -m 0644 afalg.h $(DESTDIR)$(INCLUDEDIR)/afalg.h
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/$(TARGET)
+	rm -f $(DESTDIR)$(LIBDIR)/$(LIB) $(DESTDIR)$(LIBDIR)/libafalg.so
+	rm -f $(DESTDIR)$(INCLUDEDIR)/afalg.h
 
 clean:
-	rm -f $(OBJS) $(TARGET) $(DEPS) .version
+	rm -f $(OBJS) $(LIB_OBJS) $(TARGET) $(LIB) $(DEPS) .version
 	@make --no-print-directory -C tests clean
 
 FORCE:

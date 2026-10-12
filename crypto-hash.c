@@ -97,7 +97,7 @@ static void process_data(int fd, char *ibuf, size_t size)
 {
 	int ret;
 
-	ret = send(fd, ibuf, size, MSG_MORE);
+	ret = afalg_send(fd, ibuf, size);
        	if (ret < size) {
 		if (ret < 0)
                		fatal("sendmsg(): %m");
@@ -110,7 +110,7 @@ static void read_hash(int fd, char *buf, size_t size)
 {
 	int ret;
 
-	ret = read(fd, buf, size);
+	ret = afalg_recv(fd, buf, size);
        	if (ret < size) {
 		if (ret < 0)
                		fatal("read(): %m");
