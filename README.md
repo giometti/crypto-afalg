@@ -29,7 +29,7 @@ This project provides a basic example of how to interact with the kernel's crypt
 
 To build and run this project, you need:
 
-  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`) need **Kernel 6.2 or newer** with `KEYS` support.
+  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf always) need **Kernel 6.2 or newer** with `KEYS` support.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
   * The keyutils library and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
@@ -49,7 +49,7 @@ $ cd crypto-afalg
 $ make
 ```
 
-The build produces the tool, `crypto-afalg`, and the shared library it uses, `libafalg.so.0` (see [libafalg](#libafalg)). To run the tool from the build directory without installing it, tell the dynamic loader where the library is:
+The build produces the tools, `crypto-afalg` and `craf`, and the shared library they use, `libafalg.so.0` (see [libafalg](#libafalg)). To run the tools from the build directory without installing them, tell the dynamic loader where the library is:
 
 ```bash
 $ export LD_LIBRARY_PATH=$PWD
@@ -70,13 +70,15 @@ all tests are OK!
 
 If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm.
 
+The tests of craf use the driver of `cbc(aes)` that `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`.
+
 ## How to Install
 
 ```bash
 $ make install
 ```
 
-installs `crypto-afalg` into `PREFIX` (default `/usr/bin`), the library `libafalg.so.0` and its link-time name `libafalg.so` into `LIBDIR` (default `/usr/lib`), and the header `afalg.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files.
+installs `crypto-afalg` and `craf` into `PREFIX` (default `/usr/bin`), the library `libafalg.so.0` and its link-time name `libafalg.so` into `LIBDIR` (default `/usr/lib`), and the header `afalg.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files.
 
 `LIBDIR` must be a directory the dynamic loader searches: after installing into one it finds only through its cache, such as `/usr/local/lib`, run `ldconfig` as root.
 
@@ -251,6 +253,17 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 ## libafalg
 
 `libafalg.so.0` is the `AF_ALG` socket layer of crypto-afalg, as a shared library for other tools too. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libafalg.md](doc/libafalg.md).
+
+## craf
+
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring:
+
+```bash
+$ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
+$ craf unseal -enc-key @s,user,backup < data.craf > data.tar
+```
+
+Its options, exit statuses, what it protects against, the archive format and its known bugs are in [doc/craf.md](doc/craf.md).
 
 -----
 
