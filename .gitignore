@@ -1,5 +1,6 @@
 *.d
 *.o
+craf
 crypto-afalg
 .version
 libafalg.so.0
