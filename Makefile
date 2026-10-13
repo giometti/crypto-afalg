@@ -24,7 +24,7 @@ endif
 
 CFLAGS += -O -Wall -Werror -D_GNU_SOURCE
 CFLAGS += -D__CRYPTO_AFALG_VERSION__=\"$(VERSION)\"
-LDLIBS += -lkeyutils
+LIB_LDLIBS = -lkeyutils
 
 PREFIX ?= /usr/bin
 LIBDIR ?= /usr/lib
@@ -47,7 +47,7 @@ crypto-afalg.o: .version
 
 $(LIB): $(LIB_OBJS)
 	$(CC) $(CFLAGS) -shared -Wl,-soname,$(LIB) -o $@ $(LIB_OBJS) \
-		$(LFLAGS) $(LDFLAGS)
+		$(LFLAGS) $(LDFLAGS) $(LIB_LDLIBS)
 
 $(TARGET): $(OBJS) $(LIB)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LIB) $(LFLAGS) $(LDFLAGS) $(LDLIBS)

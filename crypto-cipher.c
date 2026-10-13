@@ -304,7 +304,8 @@ static void usage_cipher(const char *cmd)
 	fprintf(stderr,
 		"NOTE: keyring key can be:\n"
 		"      - a simple serial number, or\n"
-		"      - a symbolic name as [<keyring>,]<type>,<name>\n");
+		"      - a symbolic name as [<keyring>,]<type>,<name>, with\n"
+		"        <keyring> @u (user, the default) or @s (session)\n");
 #endif
 }
 

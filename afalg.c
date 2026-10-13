@@ -18,9 +18,14 @@
  */
 
 #include <errno.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <keyutils.h>
 #include "afalg.h"
 
 #ifndef SOL_ALG
@@ -29,6 +34,99 @@
 
 /* The library is built with -fvisibility=hidden: this is its interface */
 #define AFALG_EXPORT		__attribute__((visibility("default")))
+
+/* What a keyring search looked for, and the key it found */
+struct key_match {
+	const char *type;
+	const char *desc;
+	key_serial_t found;
+};
+
+/* The keyrings a spec may name, each by one of two exact names */
+static const struct {
+	const char *names[2];
+	key_serial_t id;
+	const char *shown;
+} keyrings[] = {
+	{ { "@u", "user" },	KEY_SPEC_USER_KEYRING,		"@u" },
+	{ { "@s", "session" },	KEY_SPEC_SESSION_KEYRING,	"@s" },
+};
+
+/* Fails with errno e, writing the reason into msg when one is asked for */
+static int __attribute__((format(printf, 4, 5)))
+fail(char *msg, size_t size, int e, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (msg && size > 0) {
+		va_start(ap, fmt);
+		vsnprintf(msg, size, fmt, ap);
+		va_end(ap);
+	}
+	errno = e;
+	return -1;
+}
+
+static bool is_name(const char *s, size_t len, const char *name)
+{
+	return strlen(name) == len && memcmp(s, name, len) == 0;
+}
+
+/* The index in keyrings[] of the keyring named by s, len long, or -1 */
+static int keyring_by_name(const char *s, size_t len)
+{
+	size_t i, j;
+
+	for (i = 0; i < sizeof(keyrings) / sizeof(keyrings[0]); i++)
+		for (j = 0; j < 2; j++)
+			if (is_name(s, len, keyrings[i].names[j]))
+				return i;
+	return -1;
+}
+
+/* Decimal digits only, positive and within key_serial_t */
+static bool parse_serial(const char *s, key_serial_t *id)
+{
+	char *end;
+	long v;
+
+	if (*s < '0' || *s > '9')
+		return false;
+	errno = 0;
+	v = strtol(s, &end, 10);
+	if (errno || *end != '\0' || v <= 0 || v > INT32_MAX)
+		return false;
+	*id = v;
+	return true;
+}
+
+/*
+ * One more key of the type and description searched, besides the one
+ * found: desc is "<type>;<uid>;<gid>;<perm>;<description>"
+ */
+static int other_match(key_serial_t parent, key_serial_t key, char *desc,
+		       int desc_len, void *data)
+{
+	const struct key_match *m = data;
+	size_t tlen = strlen(m->type);
+	char *p, *end;
+	int i;
+
+	if (!desc || key == m->found)
+		return 0;
+	p = desc;
+	end = desc + desc_len;
+	if ((size_t) desc_len <= tlen || memcmp(p, m->type, tlen) != 0 ||
+	    p[tlen] != ';')
+		return 0;
+	for (i = 0; i < 4; i++) {
+		p = memchr(p, ';', end - p);
+		if (!p)
+			return 0;
+		p++;
+	}
+	return is_name(p, end - p, m->desc);
+}
 
 AFALG_EXPORT int afalg_socket(void)
 {
@@ -133,4 +231,81 @@ AFALG_EXPORT ssize_t afalg_send(int fd, const void *buf, size_t len)
 AFALG_EXPORT ssize_t afalg_recv(int fd, void *buf, size_t len)
 {
 	return read(fd, buf, len);
+}
+
+AFALG_EXPORT int afalg_key_from_spec(const char *spec, struct afalg_key *key,
+				     char *msg, size_t size)
+{
+	const char *ptype, *pdesc, *comma;
+	struct key_match m;
+	key_serial_t keyring_id, num;
+	char type[64];
+	int k, e;
+
+	/* The simple form "<serial>" */
+	comma = strchr(spec, ',');
+	if (!comma) {
+		if (!parse_serial(spec, &num))
+			return fail(msg, size, EINVAL,
+				    "invalid key serial number \"%s\"", spec);
+		goto found;
+	}
+
+	/* The form "[<keyring>,]<type>,<description>", @u by default */
+	k = 0;
+	ptype = spec;
+	pdesc = strchr(comma + 1, ',');
+	if (pdesc) {
+		k = keyring_by_name(spec, comma - spec);
+		if (k < 0)
+			return fail(msg, size, EINVAL,
+				    "unknown keyring name \"%.*s\"",
+				    (int) (comma - spec), spec);
+		ptype = comma + 1;
+	} else
+		pdesc = comma;
+
+	if (pdesc == ptype)
+		return fail(msg, size, EINVAL, "empty key type in \"%s\"",
+			    spec);
+	if ((size_t) (pdesc - ptype) >= sizeof(type))
+		return fail(msg, size, EINVAL, "key type too long");
+	memcpy(type, ptype, pdesc - ptype);
+	type[pdesc - ptype] = '\0';
+	pdesc++;
+	if (*pdesc == '\0')
+		return fail(msg, size, EINVAL,
+			    "empty key description in \"%s\"", spec);
+
+	keyring_id = keyctl_get_keyring_ID(keyrings[k].id, 0);
+	if (keyring_id < 0) {
+		e = errno;
+		return fail(msg, size, e, "cannot get keyring ID: %s",
+			    strerror(e));
+	}
+	num = keyctl_search(keyring_id, type, pdesc, 0);
+	if (num < 0) {
+		e = errno;
+		return fail(msg, size, e,
+			    "cannot get ID for %s key %s in keyring %s: %s",
+			    type, pdesc, keyrings[k].shown, strerror(e));
+	}
+
+	/*
+	 * The search descends into the keyrings linked to this one and takes
+	 * the first key it meets, so a name held twice is refused. Only the
+	 * keyrings the caller can read are counted.
+	 */
+	m.type = type;
+	m.desc = pdesc;
+	m.found = num;
+	if (recursive_key_scan(keyring_id, other_match, &m) > 0)
+		return fail(msg, size, ENOTUNIQ,
+			    "more than one %s key %s in keyring %s",
+			    type, pdesc, keyrings[k].shown);
+
+found:
+	key->type = AFALG_KEY_SERIAL;
+	key->serial = num;
+	return 0;
 }

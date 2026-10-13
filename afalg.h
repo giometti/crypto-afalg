@@ -48,7 +48,9 @@ struct afalg_key {
  * struct sockaddr_alg, EINVAL from afalg_set_op_iv() for an IV longer
  * than AFALG_MAX_IV_LEN, EOPNOTSUPP from afalg_set_key() for a keyring
  * key when built without ALG_SET_KEY_BY_KEY_SERIAL and EINVAL for an
- * unknown key type.
+ * unknown key type, EINVAL from afalg_key_from_spec() for a malformed
+ * spec and ENOTUNIQ for a description that more than one key holds
+ * (the other errors of afalg_key_from_spec() are those of keyutils).
  */
 extern int afalg_socket(void);
 extern int afalg_bind(int s, const char *type, const char *name);
@@ -67,5 +69,18 @@ extern int afalg_set_op_iv(int fd, int op, const void *iv, size_t iv_len);
  */
 extern ssize_t afalg_send(int fd, const void *buf, size_t len);
 extern ssize_t afalg_recv(int fd, void *buf, size_t len);
+
+/*
+ * A keyring key from "<serial>" or "[<keyring>,]<type>,<description>",
+ * the keyring being @u (also "user", the default) or @s (also
+ * "session"). With two commas the first field is the keyring, so a
+ * description with a comma needs the keyring. A serial is taken as it
+ * is, not looked up; a description is refused when more than one key
+ * holds it in the keyrings the caller can read. Returns 0 on success;
+ * when msg is not NULL it receives the reason of a failure, in at most
+ * size bytes.
+ */
+extern int afalg_key_from_spec(const char *spec, struct afalg_key *key,
+			       char *msg, size_t size);
 
 #endif /* AFALG_H */

@@ -18,7 +18,6 @@
  */
 
 #include <ctype.h>
-#include <keyutils.h>
 #include <regex.h>
 #include "crypto-afalg.h"
 
@@ -255,63 +254,11 @@ size_t read_key(const char *file, char *key, size_t key_len)
  */
 void num_key(const char *str, struct afalg_key *key)
 {
-	char *keyring = "@u";
-	char type[64];
-	const char *pname, *ptype;
-	key_serial_t key_spec = KEY_SPEC_USER_KEYRING;
-	key_serial_t keyring_id;
-	int32_t num;
+	char msg[8192];
 
-	/* The the simple form "<num>" */
-	ptype = strchr(str, ',');
-	if (ptype == 0) {
-		num = atoi(str);
-		if (num == 0)
-			fatal("invalid key serial number");
-		goto exit;
-	}
-
-	/* OK, let's try to parse the second form */
-	pname = strchr(ptype + 1, ',');
-	if (pname == 0) {
-		pname = ptype;
-		ptype = str;
-	}
-
-	if (ptype != str) {
-		if (strncmp(str, "session", ptype - str) == 0 ||
-		    strncmp(str, "@s", ptype - str) == 0) {
-			key_spec = KEY_SPEC_SESSION_KEYRING;
-			keyring = "@s";
-		} else if (strncmp(str, "user", ptype - str) == 0 ||
-			 strncmp(str, "@u", ptype - str) == 0)
-			/* nop */;
-		else
-			fatal("unknown keyring name \"%.*s\"",
-					(int) (ptype - str), str);
-
-		ptype++;
-	}
-
-	keyring_id = keyctl_get_keyring_ID(key_spec, 0);
-	if (keyring_id < 0)
-		fatal("cannot get keyring ID: %m");
-	dbg("keyring %s id=%ld", keyring, (long) keyring_id);
-
-	BUG_ON(pname - ptype >= 64);
-	strncpy(type, ptype, pname - ptype);
-	type[pname - ptype] = '\0';
-	pname++;
-	dbg("type=%s name=%s", type, pname);
-	num = keyctl_search(keyring_id, type, pname, 0);
-	if (num < 0)
-		fatal("cannot get ID for %s key %s in keyring %s: %m",
-				type, pname, keyring);
-
-exit:
-	dbg("key_id=%ld", (long) num);
-	key->type = AFALG_KEY_SERIAL;
-	key->serial = num;
+	if (afalg_key_from_spec(str, key, msg, sizeof(msg)) < 0)
+		fatal("%s", msg);
+	dbg("key_id=%ld", (long) key->serial);
 }
 
 size_t str_key(char *str, char **key)
