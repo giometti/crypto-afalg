@@ -1,6 +1,6 @@
 # libafalg
 
-`libafalg.so.0` is the `AF_ALG` socket layer of crypto-afalg, as a shared library for other tools too. Each of its functions wraps one step of the `AF_ALG` interface of the Linux kernel: open a socket, bind it to an algorithm or a driver, set a key, open an operation, set its direction and IV, pass data in and read the result. The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
+`libafalg.so.0` is the `AF_ALG` socket layer of crypto-afalg, as a shared library for other tools too. All its functions but one wrap one step each of the `AF_ALG` interface of the Linux kernel: open a socket, bind it to an algorithm or a driver, set a key, open an operation, set its direction and IV, pass data in and read the result; the other, `afalg_key_from_spec()`, finds a keyring key for `afalg_set_key()`. The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
 
 ## Stability
 
@@ -8,11 +8,11 @@ The interface, declared in `afalg.h`, is **unstable until version 1.0**. Its son
 
 ## Building and linking
 
-`make` builds `libafalg.so.0` together with crypto-afalg, and `make install` installs it with its link-time name `libafalg.so` and the header `afalg.h` (see "How to Install" in the README). Compile a program with `#include <afalg.h>` and link it with `-lafalg` against an installed copy: the build directory holds no `libafalg.so`. Like the rest of the project, the library is licensed under the GNU GPL v3.0 or later.
+`make` builds `libafalg.so.0` together with crypto-afalg, and `make install` installs it with its link-time name `libafalg.so` and the header `afalg.h` (see "How to Install" in the README). Compile a program with `#include <afalg.h>` and link it with `-lafalg` against an installed copy: the build directory holds no `libafalg.so`. The library itself needs `libkeyutils` (see Requirements in the README). Like the rest of the project, the library is licensed under the GNU GPL v3.0 or later.
 
 ## Errors
 
-Every function returns -1 on failure and sets `errno`: the error of the system call it wraps, or one of the library's own, which the comment above the declarations in `afalg.h` lists. `afalg_set_op_iv()` returns 0 on success.
+Every function returns -1 on failure and sets `errno`: the error of the system call it wraps, or one of the library's own, which the comment above the declarations in `afalg.h` lists. `afalg_set_op_iv()` and `afalg_key_from_spec()` return 0 on success.
 
 ## Functions
 
@@ -25,6 +25,7 @@ Every function returns -1 on failure and sets `errno`: the error of the system c
 | `afalg_set_op_iv(fd, op, iv, iv_len)` | sets encryption or decryption (`ALG_OP_ENCRYPT`, `ALG_OP_DECRYPT`) and the IV of a `skcipher` operation; `iv_len` must be the IV size of the cipher (the kernel refuses any other), at most `AFALG_MAX_IV_LEN` |
 | `afalg_send(fd, buf, len)` | adds data to the one ongoing operation, always with `MSG_MORE`: a cipher chains its IV across calls, a hash digests every call up to `afalg_recv()` |
 | `afalg_recv(fd, buf, len)` | reads its result |
+| `afalg_key_from_spec(spec, key, msg, size)` | resolves a keyring key given as a serial or as `[<keyring>,]<type>,<description>`, as crypto-afalg `-S` takes it, refusing a malformed spec and a description that more than one key holds among the keyrings the caller can read (with two commas the first field is the keyring, so a description with a comma needs it); a serial is taken as it is, not looked up; on failure `msg`, when not NULL, receives the reason |
 
 ## A typical use
 

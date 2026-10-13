@@ -36,6 +36,7 @@ To build and run this project, you need:
   * git, used by the build to compute the version string.
   * bash, for the version helper and the tests.
   * binutils (`readelf`, `nm`), for the tests.
+  * keyctl (keyutils) and openssl, for the tests.
   * GNU make 4.2 or newer (for `.SHELLSTATUS`).
 
 ## How to Build
@@ -137,10 +138,13 @@ where <SALT> can be one of:
     -t|--saltfile <name>    : salt from file
 NOTE: keyring key can be:
       - a simple serial number, or
-      - a symbolic name as [<keyring>,]<type>,<name>
+      - a symbolic name as [<keyring>,]<type>,<name>, with
+        <keyring> @u (user, the default) or @s (session)
 ```
 
 Note that, if your system does not support symmetric encryption via keyring keys (see the define `ALG_SET_KEY_BY_KEY_SERIAL`), the `-S|--keyserial` option will not be shown.
+
+A serial is a positive decimal number, digits only. The keyring of a symbolic name is `@u` (also `user`, the default) or `@s` (also `session`), named exactly; with two commas the first field is the keyring, so a description with a comma needs the keyring (`user,a,b` is the key of type `a` and description `b` in `@u`). The search for a symbolic name also looks into the keyrings linked to the one named, and a description that two keys hold there is refused instead of taking the first found; a key in a keyring that you can search but not read is not counted. Up to v1.1.0 crypto-afalg accepted a serial followed by other characters, a negative or too large one, a prefix of a keyring name, and took the first of two keys with the same description: such specs are now refused.
 
 To encrypt/decrypt data:
 
@@ -198,7 +202,8 @@ where <KEY> can be one of:
     -p|--passfile <name>    : passkey from file
 NOTE: keyring key can be:
       - a simple serial number, or
-      - a symbolic name as [<keyring>,]<type>,<name>
+      - a symbolic name as [<keyring>,]<type>,<name>, with
+        <keyring> @u (user, the default) or @s (session)
 ```
 
 To hash data:
