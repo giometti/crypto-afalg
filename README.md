@@ -68,9 +68,9 @@ executing test0003.sh... aes-128-cbc [file-enc-dec]: OK.
 all tests are OK!
 ```
 
-If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm.
+If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm, or lacks something else the test needs (for craf, see below).
 
-The tests of craf use the driver of `cbc(aes)` that `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`.
+The tests of craf use the driver of `cbc(aes)` that `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED`: on a TPM 2.0 the parent key, for example `make tests CRAF_TEST_TRUSTED=keyhandle=0x81000001`. Without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure.
 
 ## How to Install
 
@@ -256,11 +256,13 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring:
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries:
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
 $ craf unseal -enc-key @s,user,backup < data.craf > data.tar
+$ craf seal -cipher-driver cbc-aes-ce -enc-blob key.blob < data.tar > data.craf
+$ craf unseal < data.craf > data.tar
 ```
 
 Its options, exit statuses, what it protects against, the archive format and its known bugs are in [doc/craf.md](doc/craf.md).
