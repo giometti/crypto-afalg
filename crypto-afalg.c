@@ -191,6 +191,25 @@ reset:
         return res;
 }
 
+/*
+ * The kernel decides, with a bind(): a template such as hmac(sha256)
+ * is listed in /proc/crypto only once something has used it since the
+ * boot, and a bind() is what builds it. Any failure, a socket that does
+ * not open included, reads as not available.
+ */
+bool kernel_has_algo(const char *type, const char *name)
+{
+	int s, ret;
+
+	s = afalg_socket();
+	if (s < 0)
+		return false;
+	ret = afalg_bind(s, type, name);
+	close(s);		/* intentionally ignored */
+
+	return ret == 0;
+}
+
 size_t parse_str(const char *label, const char *str, char *data, size_t len)
 {
         size_t i;
@@ -273,16 +292,16 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
         int s;
         int ret;
 
-	if (!is_in_proc_crypto(type, algo_kname(algo), use_driver)) {
-		if (use_driver)
-			fatal("driver \"%s\" is not available "
-				"or not valid %s(%s) algo",
-					use_driver, type, algo_kname(algo));
-		else
-			fatal("algo \"%s\" is not available "
-				"or not valid %s algo",
-					algo_kname(algo), type);
-	}
+	/*
+	 * A driver of another algorithm binds without error, so a driver
+	 * given by name is checked in /proc/crypto; an algorithm is left
+	 * to the bind(), which builds it if needed.
+	 */
+	if (use_driver &&
+	    !is_in_proc_crypto(type, algo_kname(algo), use_driver))
+		fatal("driver \"%s\" is not available "
+			"or not valid %s(%s) algo",
+				use_driver, type, algo_kname(algo));
 
         ret = afalg_socket();
         if (ret < 0)
@@ -290,6 +309,9 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
         s = ret;
 
         ret = afalg_bind(s, type, use_driver ? use_driver : algo_kname(algo));
+	if (ret < 0 && errno == ENOENT && !use_driver)
+		fatal("algo \"%s\" is not available or not valid %s algo",
+			algo_kname(algo), type);
         if (ret < 0)
                 fatal("bind(): %m");
 

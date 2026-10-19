@@ -49,8 +49,8 @@ static int list_ciphers(void)
 		if (algo_type(algo) != AFALG_TYPE_CIPHER)
 			continue;
 		info("%c %-20s%-16s  %lu        %lu/%lu",
-			is_in_proc_crypto("skcipher",
-					algo_kname(algo), NULL) ?  '-' : 'x',
+			kernel_has_algo("skcipher",
+					algo_kname(algo)) ? '-' : 'x',
 			algo_name(algo), algo_kname(algo),
 			algo_block_size(algo),
 			algo_key_len(algo), algo_iv_len(algo));
@@ -70,7 +70,7 @@ static bool check_cipher(const char *kname)
                         continue;
                 if (strcmp(algo_kname(algo), kname))
                         continue;
-                if (is_in_proc_crypto("skcipher", kname, NULL))
+                if (kernel_has_algo("skcipher", kname))
                         return true;
         }
 

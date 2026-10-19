@@ -86,6 +86,7 @@ extern void write_output(const void *buf, size_t len);
 extern void flush_output(void);
 extern bool is_in_proc_crypto(const char *type, const char *name,
 				const char *driver);
+extern bool kernel_has_algo(const char *type, const char *name);
 extern size_t parse_str(const char *label,
                                 const char *str, char *data, size_t len);
 extern size_t parse_key(const char *str, char *key, size_t key_len);

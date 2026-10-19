@@ -40,8 +40,7 @@ static int list_hashes(void)
 		if (algo_type(algo) != AFALG_TYPE_HASH)
 			continue;
 		info("%c %-20s%-16s  %lu        %lu",
-			is_in_proc_crypto("hash",
-					algo_kname(algo), NULL) ?  '-' : 'x',
+			kernel_has_algo("hash", algo_kname(algo)) ? '-' : 'x',
 			algo_name(algo), algo_kname(algo),
 			algo_block_size(algo), algo_key_len(algo));
 	}
@@ -61,7 +60,7 @@ static bool check_hash(const char *kname)
 			continue;
 		if (strcmp(algo_kname(algo), kname))
 			continue;
-		if (is_in_proc_crypto("hash", kname, NULL))
+		if (kernel_has_algo("hash", kname))
 			return true;
 	}
 
