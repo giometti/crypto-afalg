@@ -248,7 +248,9 @@ crypto-afalg:   NOTE: 'x' means 'not available'
 crypto-afalg:   NOTE: algo with key(B) > 0 requires a key
 ```
 
-By using the `--force-driver` option, you can force the use of a specific kernel driver of an algorithm despite its priority (see `/proc/crypto`).
+An algorithm is available when the kernel gives an `AF_ALG` socket for it: the list, `check-kalgo` (for the kernel names of the list) and every command without `--force-driver` ask the kernel with a `bind()`, not `/proc/crypto`, since an algorithm the kernel builds from a template, such as `hmac(sha256)`, is listed there only once something has used it since the boot. Asking counts as a use: it builds the template, and may make the kernel load a module.
+
+By using the `--force-driver` option, you can force the use of a specific kernel driver of an algorithm despite its priority (see `/proc/crypto`). The driver must be listed in `/proc/crypto` as one of that algorithm, so a driver the kernel builds from a template is refused until something has used it since the boot.
 
 ## libafalg
 
