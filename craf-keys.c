@@ -23,6 +23,16 @@
 #include <keyutils.h>
 #include "craf-keys.h"
 
+/* A trusted key blob, as long as the length of its header field counts */
+#define BLOB_MAX		UINT16_MAX
+
+/* The state of source "trusted": the blob, and the key loaded from it */
+struct trusted {
+	uint8_t blob[BLOB_MAX];
+	uint16_t len;
+	key_serial_t id;
+};
+
 /*
  * A user key can be read back, so its length is checked: one of 16 or
  * 24 bytes would make the cipher AES-128 or AES-192 in silence.
@@ -90,6 +100,7 @@ static void serial_release(struct craf_keys *keys)
 
 static const struct craf_key_source serial_source = {
 	.name		= "serial",
+	.key_in_header	= false,
 	.seal_keys	= serial_keys,
 	.write_fields	= serial_write_fields,
 	.read_fields	= serial_read_fields,
@@ -97,14 +108,202 @@ static const struct craf_key_source serial_source = {
 	.release	= serial_release,
 };
 
+static int hex_value(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+/* The blob in hex, as keyctl pipe writes it, or print with a newline */
+static int read_blob(const char *path, struct trusted *t)
+{
+	/* One more than the longest, to tell a longer file */
+	static char hex[2 * BLOB_MAX + 2];
+	size_t n, i;
+	int hi, lo;
+	FILE *f;
+
+	f = fopen(path, "r");
+	if (!f)
+		return craf_err(CRAF_FAILED, "-enc-blob: cannot open %s: %m",
+				path);
+	n = fread(hex, 1, sizeof(hex), f);
+	if (ferror(f)) {
+		err("-enc-blob: cannot read %s: %m", path);
+		fclose(f);
+		return CRAF_FAILED;
+	}
+	fclose(f);
+	if (n > 0 && hex[n - 1] == '\n')
+		n--;
+	if (n > 2 * BLOB_MAX)
+		return craf_err(CRAF_USAGE,
+				"-enc-blob: %s holds a blob longer than %d bytes",
+				path, BLOB_MAX);
+	if (n == 0)
+		return craf_err(CRAF_USAGE, "-enc-blob: %s is empty", path);
+	if (n % 2)
+		return craf_err(CRAF_USAGE,
+				"-enc-blob: %s is not a key blob in hex", path);
+	for (i = 0; i < n; i += 2) {
+		hi = hex_value(hex[i]);
+		lo = hex_value(hex[i + 1]);
+		if (hi < 0 || lo < 0)
+			return craf_err(CRAF_USAGE,
+					"-enc-blob: %s is not a key blob in hex",
+					path);
+		t->blob[i / 2] = hi << 4 | lo;
+	}
+	t->len = n / 2;
+	return CRAF_OK;
+}
+
+/*
+ * The key goes into the thread keyring: no other process can find it,
+ * and it goes with the process, even one that is killed. What the
+ * kernel loads is the blob the header holds, in the kernel's own form.
+ * The key has the length it was made with, which craf cannot read: 32
+ * bytes is up to whoever made it. A blob that needs options to load,
+ * such as a TPM 2.0 policy, cannot be used. path names the -enc-blob
+ * file, NULL for the blob an archive carries.
+ */
+static int load_blob(struct trusted *t, const char *path,
+		     struct afalg_key *key)
+{
+	static const char digits[] = "0123456789abcdef";
+	static char payload[sizeof("load ") + 2 * BLOB_MAX];
+	size_t len = strlen("load "), i;
+	const char *hint;
+
+	memcpy(payload, "load ", len);
+	for (i = 0; i < t->len; i++) {
+		payload[len++] = digits[t->blob[i] >> 4];
+		payload[len++] = digits[t->blob[i] & 0xf];
+	}
+	t->id = add_key("trusted", "craf", payload, len,
+			KEY_SPEC_THREAD_KEYRING);
+	if (t->id < 0) {
+		/* ENODEV: no "trusted" key type is registered */
+		hint = errno == ENODEV ?
+			"no trusted keys in the kernel, or no trust source up" :
+			"sealed on another system, or changed?";
+		if (path)
+			return craf_err(CRAF_FAILED,
+					"-enc-blob: cannot load the trusted key blob in %s: %m (%s)",
+					path, hint);
+		return craf_err(CRAF_FAILED,
+				"cannot load the trusted key blob the archive carries: %m (%s)",
+				hint);
+	}
+	key->type = AFALG_KEY_SERIAL;
+	key->serial = t->id;
+	return CRAF_OK;
+}
+
+static int trusted_state(struct craf_keys *keys, struct trusted **t)
+{
+	*t = calloc(1, sizeof(**t));
+	if (!*t)
+		return craf_err(CRAF_FAILED, "cannot allocate memory: %m");
+	keys->priv = *t;
+	return CRAF_OK;
+}
+
+/*
+ * Source "trusted": the blob of a trusted key, which only the trust
+ * source that made it can load, travels in the header
+ */
+static int trusted_seal_keys(const struct craf_key_opts *opts,
+			     struct craf_keys *keys)
+{
+	struct trusted *t;
+	int status;
+
+	status = trusted_state(keys, &t);
+	if (!status)
+		status = read_blob(opts->enc_blob, t);
+	if (!status)
+		status = load_blob(t, opts->enc_blob, &keys->enc);
+	return status;
+}
+
+static int trusted_write_fields(struct craf_wbuf *b, struct craf_keys *keys)
+{
+	struct trusted *t = keys->priv;
+
+	craf_put_blob(b, t->blob, t->len);
+	return CRAF_OK;
+}
+
+static int trusted_read_fields(struct craf_rbuf *r, struct craf_keys *keys)
+{
+	struct trusted *t;
+	int status;
+
+	status = trusted_state(keys, &t);
+	if (status)
+		return status;
+	/* A wrong field stays in r: the header reader reports it */
+	craf_get_blob(r, "blob", t->blob, &t->len);
+	return CRAF_OK;
+}
+
+static int trusted_unseal_keys(const struct craf_key_opts *opts,
+			       struct craf_keys *keys)
+{
+	return load_blob(keys->priv, NULL, &keys->enc);
+}
+
+static void trusted_release(struct craf_keys *keys)
+{
+	struct trusted *t = keys->priv;
+
+	if (!t)
+		return;
+	/* Not fatal: the thread keyring goes at the exit anyway */
+	if (t->id > 0 && keyctl_invalidate(t->id) < 0)
+		err("cannot remove the trusted key %d: %m", t->id);
+	free(t);
+	keys->priv = NULL;
+}
+
+static const struct craf_key_source trusted_source = {
+	.name		= "trusted",
+	.key_in_header	= true,
+	.seal_keys	= trusted_seal_keys,
+	.write_fields	= trusted_write_fields,
+	.read_fields	= trusted_read_fields,
+	.unseal_keys	= trusted_unseal_keys,
+	.release	= trusted_release,
+};
+
 static const struct craf_key_source *const sources[] = {
 	&serial_source,
+	&trusted_source,
 };
 
 int craf_seal_source(const struct craf_key_opts *opts,
 		     const struct craf_key_source **src)
 {
-	*src = &serial_source;
+	*src = opts->enc_blob ? &trusted_source : &serial_source;
+	return CRAF_OK;
+}
+
+/* Which key option unseal takes depends on the archive */
+int craf_unseal_key_opts(const struct craf_key_source *src,
+			 const struct craf_key_opts *opts)
+{
+	if (src->key_in_header && opts->enc_key)
+		return craf_err(CRAF_USAGE, "unseal: the archive carries its "
+				"key, -enc-key is not for it");
+	if (!src->key_in_header && !opts->enc_key)
+		return craf_err(CRAF_USAGE,
+				"unseal: the archive needs -enc-key");
 	return CRAF_OK;
 }
 

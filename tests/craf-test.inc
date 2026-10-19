@@ -8,8 +8,9 @@ CRAF_KEY_GOOD=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 CRAF_KEY_BAD=1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
 CRAF_IV=a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
 
-craf_skip () {
-	echo Skipped
+# Skipped, with the reason when there is one
+craf_skip () {	# [<reason>]
+	echo "Skipped${1:+ ($1)}"
 	exit 0
 }
 
@@ -83,18 +84,34 @@ craf_listed_driver () {	# <algorithm>
 		}' /proc/crypto
 }
 
-# The header of version 1 with <iv>, as the format lays it out
-craf_header () {	# <iv in hex> [<driver>]
-	local drv=${2:-$driver}
+# A 16-bit integer, little-endian
+craf_u16 () {	# <value>
+	printf "\\$(printf %03o $(($1 % 256)))\\$(printf %03o $(($1 / 256)))"
+}
+
+# The header of version 1 with <iv>, as the format lays it out: of key
+# source serial, or trusted with <blob>
+craf_header () {	# <iv in hex> [<driver>] [<blob in hex>]
+	local drv=${2:-$driver} blob=$3
 	local len=$((46 + ${#drv}))
 
+	if [ -n "$blob" ]; then
+		len=$((len + 3 + ${#blob} / 2))
+	fi
 	printf 'AFALGARC\001\000'
-	printf "\\$(printf %03o $((len % 256)))\\$(printf %03o $((len / 256)))"
+	craf_u16 $len
 	craf_str "$drv"
 	craf_str 'cbc(aes)'
 	printf '\040'
-	craf_str serial
-	craf_bytes $1
+	if [ -n "$blob" ]; then
+		craf_str trusted
+		craf_bytes $1
+		craf_u16 $((${#blob} / 2))
+		craf_bytes $blob
+	else
+		craf_str serial
+		craf_bytes $1
+	fi
 }
 
 # A fixed input: no byte below 0x20 but the last one, a newline

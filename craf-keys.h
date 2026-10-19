@@ -25,6 +25,7 @@
 /* What the command line says of the key */
 struct craf_key_opts {
 	const char *enc_key;		/* -enc-key */
+	const char *enc_blob;		/* seal -enc-blob */
 };
 
 /* The key of an archive, ready for afalg_set_key() */
@@ -41,6 +42,7 @@ struct craf_keys {
  */
 struct craf_key_source {
 	const char *name;		/* key_source in the header */
+	bool key_in_header;		/* unseal takes no key option */
 	int (*seal_keys)(const struct craf_key_opts *opts,
 			 struct craf_keys *keys);
 	int (*write_fields)(struct craf_wbuf *b, struct craf_keys *keys);
@@ -52,6 +54,8 @@ struct craf_key_source {
 
 extern int craf_seal_source(const struct craf_key_opts *opts,
 			    const struct craf_key_source **src);
+extern int craf_unseal_key_opts(const struct craf_key_source *src,
+				const struct craf_key_opts *opts);
 extern const struct craf_key_source *craf_key_source_by_name(const char *name);
 
 #endif /* CRAF_KEYS_H */

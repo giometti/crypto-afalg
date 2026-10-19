@@ -217,6 +217,8 @@ int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	/* The whole header, its driver included, before the keyring */
 	status = craf_header_read(in, &hdr, &h, &src, &keys);
 	if (!status)
+		status = craf_unseal_key_opts(src, opts);
+	if (!status)
 		status = unseal_driver(drv, &h, driver);
 	if (!status)
 		status = src->unseal_keys(opts, &keys);

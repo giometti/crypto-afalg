@@ -53,15 +53,21 @@ struct craf_header {
 	uint8_t iv[CRAF_IV_LEN];
 };
 
-/* Little-endian integers; a string is its length in one byte, then ASCII */
+/*
+ * Little-endian integers; a string is its length in one byte, then
+ * ASCII; a blob is its length in two bytes, then as many bytes
+ */
 extern void craf_put_bytes(struct craf_wbuf *b, const void *p, size_t len);
 extern void craf_put_u8(struct craf_wbuf *b, uint8_t v);
 extern void craf_put_u16(struct craf_wbuf *b, uint16_t v);
 extern void craf_put_str(struct craf_wbuf *b, const char *s);
+extern void craf_put_blob(struct craf_wbuf *b, const void *p, uint16_t len);
 extern bool craf_get_bytes(struct craf_rbuf *r, const char *field,
 			   void *p, size_t len);
 extern bool craf_get_u8(struct craf_rbuf *r, const char *field, uint8_t *v);
 extern bool craf_get_str(struct craf_rbuf *r, const char *field, char *s);
+extern bool craf_get_blob(struct craf_rbuf *r, const char *field,
+			  uint8_t p[static UINT16_MAX], uint16_t *len);
 
 /* Both return a craf exit status, having reported a failure */
 extern int craf_header_write(struct craf_wbuf *b, const struct craf_header *h,

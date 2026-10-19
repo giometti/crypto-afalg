@@ -55,6 +55,12 @@ void craf_put_str(struct craf_wbuf *b, const char *s)
 	craf_put_bytes(b, s, len);
 }
 
+void craf_put_blob(struct craf_wbuf *b, const void *p, uint16_t len)
+{
+	craf_put_u16(b, len);
+	craf_put_bytes(b, p, len);
+}
+
 static bool rbuf_fail(struct craf_rbuf *r, const char *field,
 		      const char *why)
 {
@@ -97,6 +103,20 @@ bool craf_get_str(struct craf_rbuf *r, const char *field, char *s)
 		if (s[i] < 0x21 || s[i] > 0x7e)
 			return rbuf_fail(r, field, "is not printable ASCII");
 	return true;
+}
+
+/* Not empty; the size of p lets gcc refuse a buffer that is too small */
+bool craf_get_blob(struct craf_rbuf *r, const char *field,
+		   uint8_t p[static UINT16_MAX], uint16_t *len)
+{
+	uint8_t le[2];
+
+	if (!craf_get_bytes(r, field, le, sizeof(le)))
+		return false;
+	*len = le[0] | le[1] << 8;
+	if (*len == 0)
+		return rbuf_fail(r, field, "is empty");
+	return craf_get_bytes(r, field, p, *len);
 }
 
 int craf_header_write(struct craf_wbuf *b, const struct craf_header *h,

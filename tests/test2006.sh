@@ -46,8 +46,8 @@ craf_expect 2 'names an algorithm, not a driver' $NAME.in \
 craf_expect 2 'the length must be 1 to 63' $NAME.in \
 	seal -cipher-driver $(printf 'x%.0s' {1..64}) -enc-key $good
 
-# A missing key is wrong usage, whatever the input
-craf_expect 2 'unseal: -enc-key is required' $NAME.in unseal
+# A missing key is wrong usage, once the archive says it needs one
+craf_expect 2 'unseal: the archive needs -enc-key' $NAME.craf unseal
 
 # The same file as input and output is refused before it is truncated
 cp $NAME.craf $NAME.same

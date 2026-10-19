@@ -36,15 +36,17 @@ static void usage(FILE *f)
 		"commands:\n"
 		"  seal [ -in <file> ] [ -out <file> ]\n"
 		"       -cipher-driver <driver> | -cipher-algo %s\n"
-		"       -enc-key <key>\n"
+		"       -enc-key <key> | -enc-blob <file>\n"
 		"      encrypt the input into an archive\n"
 		"  unseal [ -in <file> ] [ -out <file> ]\n"
-		"       [ -cipher-driver <driver> | -any-driver ] -enc-key <key>\n"
-		"      decrypt an archive\n"
+		"       [ -cipher-driver <driver> | -any-driver ] [ -enc-key <key> ]\n"
+		"      decrypt an archive; -enc-key for one sealed with -enc-key\n"
 		"where:\n"
 		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce\n"
 		"  <key> is a keyring key: a serial number, or\n"
 		"        [<keyring>,]<type>,<description> (keyring @u or @s)\n"
+		"  <file> of -enc-blob holds the blob of a trusted key in hex,\n"
+		"        as keyctl pipe writes it; the archive carries it\n"
 		"exit status: 0 done, 1 refused (format, truncation, bad decrypt),\n"
 		"  2 wrong usage, 3 could not (driver, key, input, output);\n"
 		"  the output is valid only with exit status 0\n",
@@ -81,9 +83,11 @@ static int check_driver_name(const char *name)
 static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 			 const struct craf_key_opts *keys)
 {
-	if (!keys->enc_key)
-		return craf_err(CRAF_USAGE, "%s: -enc-key is required", cmd);
 	if (strcmp(cmd, "unseal") == 0) {
+		/* Whether -enc-key is needed, the archive says */
+		if (keys->enc_blob)
+			return craf_err(CRAF_USAGE,
+					"unseal: -enc-blob is for seal only");
 		if (drv->cipher_algo)
 			return craf_err(CRAF_USAGE,
 					"unseal: -cipher-algo is for seal only");
@@ -94,6 +98,12 @@ static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 			return check_driver_name(drv->cipher_driver);
 		return CRAF_OK;
 	}
+	if (!keys->enc_key && !keys->enc_blob)
+		return craf_err(CRAF_USAGE,
+				"seal: -enc-key or -enc-blob is required");
+	if (keys->enc_key && keys->enc_blob)
+		return craf_err(CRAF_USAGE,
+				"seal: give -enc-key or -enc-blob, not both");
 	if (drv->any_driver)
 		return craf_err(CRAF_USAGE,
 				"seal: -any-driver is for unseal only");
@@ -183,6 +193,24 @@ fail:
 	return CRAF_FAILED;
 }
 
+/*
+ * The output is truncated before the key is prepared, so a -out that is
+ * also the -enc-blob file would lose the blob before it is read. A file
+ * that cannot be looked at here is left to the reading, which reports it.
+ */
+static int check_blob_output(const char *blob, const char *out)
+{
+	struct stat sb, so;
+
+	if (!blob || !out || stat(blob, &sb) < 0 || stat(out, &so) < 0)
+		return CRAF_OK;
+	if (S_ISREG(sb.st_mode) && S_ISREG(so.st_mode) &&
+	    sb.st_dev == so.st_dev && sb.st_ino == so.st_ino)
+		return craf_err(CRAF_USAGE,
+				"the output and the -enc-blob file are the same file");
+	return CRAF_OK;
+}
+
 int main(int argc, char *argv[])
 {
 	static struct option options[] = {
@@ -192,6 +220,7 @@ int main(int argc, char *argv[])
 		{ "cipher-algo",	required_argument,	NULL, 'a' },
 		{ "any-driver",		no_argument,		NULL, 'n' },
 		{ "enc-key",		required_argument,	NULL, 'e' },
+		{ "enc-blob",		required_argument,	NULL, 'b' },
 		{ "help",		no_argument,		NULL, 'h' },
 		{ 0, 0, 0, 0 }
 	};
@@ -244,6 +273,9 @@ int main(int argc, char *argv[])
 		case 'e':
 			keys.enc_key = optarg;
 			break;
+		case 'b':
+			keys.enc_blob = optarg;
+			break;
 		case 'h':
 			usage(stdout);
 			return CRAF_OK;
@@ -266,6 +298,9 @@ int main(int argc, char *argv[])
 			return craf_err(CRAF_FAILED, "cannot open %s: %m",
 					in_path);
 	}
+	status = check_blob_output(keys.enc_blob, out_path);
+	if (status)
+		return status;
 	status = open_output(out_path, in, &out);
 	if (status)
 		return status;
