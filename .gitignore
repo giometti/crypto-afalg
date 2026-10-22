@@ -3,4 +3,5 @@
 craf
 crypto-afalg
 .version
+.asan
 libafalg.so.0

@@ -26,6 +26,12 @@ endif
 
 CFLAGS += -O -Wall -Werror -D_GNU_SOURCE
 CFLAGS += -D__CRYPTO_AFALG_VERSION__=\"$(VERSION)\"
+
+# make tests ASAN=1 reaches the build of each test through MAKEFLAGS;
+# override, since a CFLAGS given on the command line replaces the += above
+ifeq ($(ASAN),1)
+override CFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
+endif
 LIB_LDLIBS = -lkeyutils
 CRAF_LDLIBS = -lkeyutils
 
@@ -47,6 +53,11 @@ $(LIB_OBJS): override CFLAGS += -fPIC -fvisibility=hidden
 .version: FORCE
 	@echo '$(VERSION)' | cmp -s - $@ || echo '$(VERSION)' > $@
 crypto-afalg.o craf.o: .version
+
+# The same for ASAN, so that make ASAN=1 after a plain make rebuilds all
+.asan: FORCE
+	@echo '$(ASAN)' | cmp -s - $@ || echo '$(ASAN)' > $@
+$(OBJS) $(CRAF_OBJS) $(LIB_OBJS): .asan
 
 $(LIB): $(LIB_OBJS)
 	$(CC) $(CFLAGS) -shared -Wl,-soname,$(LIB) -o $@ $(LIB_OBJS) \
@@ -80,6 +91,7 @@ uninstall:
 
 clean:
 	rm -f $(OBJS) $(CRAF_OBJS) $(LIB_OBJS) $(TARGET) $(CRAF) $(LIB) $(DEPS) .version
+	rm -f .asan
 	@make --no-print-directory -C tests clean
 
 FORCE:
