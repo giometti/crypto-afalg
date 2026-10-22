@@ -226,6 +226,8 @@ $ echo 'Single block msgSecond block msg' | \
 0acbb46a235c5a2b49f4de5e469b5d9964b4a470cb071312a0ae72dbb21d9e9d  -
 ```
 
+An error the kernel reports while hashing stops the command with its message and exit status 1. Up to v1.3.0 it went unnoticed: crypto-afalg printed whatever its buffer held, with exit status 0.
+
 ### Common Commands
 
 You can list available algorithms:
