@@ -36,7 +36,11 @@ mkdir -p "$tmp/build" "$tmp/run"
 # With -p the mtimes are kept, so the tests after the first rebuild nothing.
 # The Makefile is the source tree's one, so the version is that tree's
 cp -p "$top"/*.c "$top"/*.h "$tmp/build/"
-make -s --no-print-directory -C "$tmp/build" -f "$top/Makefile"
+mkdir -p "$tmp/build/lib/backend" "$tmp/build/tests/lib"
+cp -p "$top"/lib/*.[ch] "$tmp/build/lib/"
+cp -p "$top"/lib/backend/*.[ch] "$tmp/build/lib/backend/"
+cp -p "$top"/tests/lib/*.c "$tmp/build/tests/lib/"
+make -s --no-print-directory -C "$tmp/build" -f "$top/Makefile" all kc-check
 # The tests source test-preset.inc and test-end.inc by bare name: the
 # shell finds them through PATH
 export PATH="$tmp/build:$tests:$PATH"
@@ -44,7 +48,7 @@ export LD_LIBRARY_PATH="$tmp/build"
 export SRCDIR=$top
 
 # A tool the build did not make would be taken from the rest of PATH
-for tool in crypto-afalg craf; do
+for tool in crypto-afalg craf kc-check; do
 	if [ "$(command -v $tool)" != "$tmp/build/$tool" ]; then
 		echo "$tool: not built in $tmp/build" >&2
 		exit 1

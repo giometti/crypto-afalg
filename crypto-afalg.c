@@ -18,7 +18,6 @@
  */
 
 #include <ctype.h>
-#include <regex.h>
 #include "crypto-afalg.h"
 
 /*
@@ -105,109 +104,13 @@ void flush_output(void)
 		fatal("cannot write output: %m");
 }
 
-bool is_in_proc_crypto(const char *type, const char *name, const char *driver)
-{
-        FILE* f;
-        char line[256];
-	regmatch_t matches[2];
-	const char *ahash = "ahash", *shash = "shash";
-	const char *n_pattern = "^name[[:space:]]+: ([^\n]+)\n$",
-		   *t_pattern = "^type[[:space:]]+: ([^\n]+)\n$",
-		   *d_pattern = "^driver[[:space:]]+: ([^\n]+)\n$";
-	regex_t n_regex, t_regex, d_regex;
-	char n[256], t[256], d[256];
-	int ret;
-        bool res = false;
-
-	ret = regcomp(&n_regex, n_pattern, REG_EXTENDED);
-	if (ret < 0)
-		fatal("cannot compile n_regex");
-	ret = regcomp(&t_regex, t_pattern, REG_EXTENDED);
-	if (ret < 0)
-		fatal("cannot compile t_regex");
-	ret = regcomp(&d_regex, d_pattern, REG_EXTENDED);
-	if (ret < 0)
-		fatal("cannot compile d_regex");
-
-        f = fopen("/proc/crypto", "r");
-        if (!f)
-                fatal("cannot open file /proc/crypto");
-
-	n[0] = t[0] = d[0] = '\0';
-        while (fgets(line, sizeof(line), f)) {
-		/* New block */
-		if (strlen(line) <= 1) {
-			if (strcmp("hash", type) == 0 &&
-			    strcmp(ahash, t) && strcmp(shash, t))
-				goto reset;
-			if (strcmp(name, n))
-				goto reset;
-			if (driver && strcmp(driver, d))
-				goto reset;
-			res = true;
-			break;
-		}
-
-		/* Check for "type         : <TYPE>" */
-		ret = regexec(&t_regex, line, ARRAY_SIZE(matches), matches, 0);
-		if (ret == 0) {
-			strncpy(t, line + matches[1].rm_so,
-				matches[1].rm_eo - matches[1].rm_so);
-			t[matches[1].rm_eo - matches[1].rm_so] = '\0';
-
-			continue;
-		}
-
-		/* Check for "name         : <NAME>" */
-		ret = regexec(&n_regex, line, ARRAY_SIZE(matches), matches, 0);
-		if (ret == 0) {
-			strncpy(n, line + matches[1].rm_so,
-				matches[1].rm_eo - matches[1].rm_so);
-			n[matches[1].rm_eo - matches[1].rm_so] = '\0';
-
-			continue;
-		}
-
-		/* Check for "driver       : <DRIVER>" */
-		ret = regexec(&d_regex, line, ARRAY_SIZE(matches), matches, 0);
-		if (ret == 0) {
-			strncpy(d, line + matches[1].rm_so,
-				matches[1].rm_eo - matches[1].rm_so);
-			d[matches[1].rm_eo - matches[1].rm_so] = '\0';
-
-			continue;
-		}
-
-		continue;
-reset:
-			n[0] = t[0] = d[0] = '\0';
-        }
-
-	regfree(&n_regex);
-	regfree(&t_regex);
-	regfree(&d_regex);
-        fclose(f);
-
-        return res;
-}
-
 /*
- * The kernel decides, with a bind(): a template such as hmac(sha256)
- * is listed in /proc/crypto only once something has used it since the
- * boot, and a bind() is what builds it. Any failure, a socket that does
- * not open included, reads as not available.
+ * The kernel decides, with a bind(); any failure, a socket that does not
+ * open included, reads as not available
  */
 bool kernel_has_algo(const char *type, const char *name)
 {
-	int s, ret;
-
-	s = afalg_socket();
-	if (s < 0)
-		return false;
-	ret = afalg_bind(s, type, name);
-	close(s);		/* intentionally ignored */
-
-	return ret == 0;
+	return kc_algo_available(type, name, NULL) == KC_OK;
 }
 
 size_t parse_str(const char *label, const char *str, char *data, size_t len)
@@ -286,6 +189,25 @@ size_t str_key(char *str, char **key)
 	return strlen(str);
 }
 
+/*
+ * A driver of another algorithm binds without error, so a driver given by
+ * name must be listed in /proc/crypto as one of the algorithm
+ */
+void check_driver(const char *type, enum afalg_algo_e algo)
+{
+	struct kc_error e;
+
+	switch (kc_driver_check(type, use_driver, algo_kname(algo), &e)) {
+	case KC_OK:
+		return;
+	case KC_FAILED:
+		fatal("cannot open file /proc/crypto");
+	default:
+		fatal("driver \"%s\" is not available or not valid %s(%s) algo",
+			use_driver, type, algo_kname(algo));
+	}
+}
+
 int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 			const struct afalg_key *key)
 {
@@ -297,11 +219,8 @@ int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 	 * given by name is checked in /proc/crypto; an algorithm is left
 	 * to the bind(), which builds it if needed.
 	 */
-	if (use_driver &&
-	    !is_in_proc_crypto(type, algo_kname(algo), use_driver))
-		fatal("driver \"%s\" is not available "
-			"or not valid %s(%s) algo",
-				use_driver, type, algo_kname(algo));
+	if (use_driver)
+		check_driver(type, algo);
 
         ret = afalg_socket();
         if (ret < 0)

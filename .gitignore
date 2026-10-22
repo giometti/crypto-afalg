@@ -5,3 +5,5 @@ crypto-afalg
 .version
 .asan
 libafalg.so.0
+libkcrypto.so.0
+kc-check
