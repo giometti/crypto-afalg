@@ -46,6 +46,9 @@ static void __attribute__((noreturn)) usage(void)
 		"    sizes, the result on stdout; <iv> in hex\n"
 		"  cipher-after enc|dec <name> <key> <iv>: after a final, the\n"
 		"    status of one more update\n"
+		"  pbkdf2 <hmac> <pass> <salt> <iter> <len>: in hex\n"
+		"  header: the salt of the openssl enc header on stdin\n"
+		"  header-make <salt>: the header on stdout\n"
 		"exhaust: no file descriptor left before the command\n"
 		"exit status: the kc_status, %d for a wrong command line\n",
 		EXIT_USAGE);
@@ -271,6 +274,49 @@ static int cipher_after(const char *dir, const char *name, const char *key,
 	return status;
 }
 
+static int pbkdf2(const char *hmac, const char *pass_hex,
+		  const char *salt_hex, const char *iter, const char *len,
+		  struct kc_error *e)
+{
+	unsigned char pass[1024], salt[1024], out[1024];
+	size_t pass_len, salt_len, out_len;
+	int status;
+
+	pass_len = parse_hex(pass_hex, pass, sizeof(pass));
+	salt_len = parse_hex(salt_hex, salt, sizeof(salt));
+	out_len = strtoul(len, NULL, 10);
+	if (out_len > sizeof(out))
+		usage();
+	status = kc_pbkdf2(hmac, pass, pass_len, salt, salt_len,
+			   strtoul(iter, NULL, 10), out, out_len, e);
+	if (!status)
+		print_hex(out, out_len);
+	return status;
+}
+
+static int header(struct kc_error *e)
+{
+	uint8_t buf[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
+	int status;
+
+	status = kc_openssl_header(buf, fread(buf, 1, sizeof(buf), stdin),
+				   salt, e);
+	if (!status)
+		print_hex(salt, sizeof(salt));
+	return status;
+}
+
+static int header_make(const char *salt_hex)
+{
+	uint8_t buf[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
+
+	if (parse_hex(salt_hex, salt, sizeof(salt)) != sizeof(salt))
+		usage();
+	kc_openssl_header_make(buf, salt);
+	put(buf, sizeof(buf));
+	return KC_OK;
+}
+
 static int hash_after(const char *name, size_t room, const char *then,
 		      struct kc_error *e)
 {
@@ -335,7 +381,15 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "hash-after") == 0 && argc == 5)
 		status = hash_after(argv[2], strtoul(argv[3], NULL, 10),
 				    argv[4], &e);
-	else if (strcmp(argv[1], "cipher") == 0 && argc == 6)
+	else if (strcmp(argv[1], "pbkdf2") == 0 && argc == 7)
+		status = pbkdf2(argv[2], argv[3], argv[4], argv[5], argv[6],
+				&e);
+	else if (strcmp(argv[1], "header") == 0 && argc == 2)
+		status = header(&e);
+	else if (strcmp(argv[1], "header-make") == 0 && argc == 3) {
+		status = header_make(argv[2]);
+		e.status = KC_OK;
+	} else if (strcmp(argv[1], "cipher") == 0 && argc == 6)
 		status = cipher(argv[2], argv[3], argv[4], argv[5], &e);
 	else if (strcmp(argv[1], "cipher-after") == 0 && argc == 6)
 		status = cipher_after(argv[2], argv[3], argv[4], argv[5], &e);

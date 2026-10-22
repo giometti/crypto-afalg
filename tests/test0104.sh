@@ -23,10 +23,12 @@ bin=$(command -v crypto-afalg)
 lib=$(dirname "$bin")/libafalg.so.0
 kc=$(dirname "$bin")/libkcrypto.so.0
 
-# crypto-afalg takes its AF_ALG layer from the shared libraries
+# crypto-afalg takes its crypto from libkcrypto only
 readelf -d "$bin" > $NAME.out || fail=y
-grep -qF 'Shared library: [libafalg.so.0]' $NAME.out || fail=y
 grep -qF 'Shared library: [libkcrypto.so.0]' $NAME.out || fail=y
+if grep -qF 'Shared library: [libafalg.so.0]' $NAME.out; then
+	fail=y
+fi
 readelf -d "$lib" > $NAME.out || fail=y
 grep -qF 'Library soname: [libafalg.so.0]' $NAME.out || fail=y
 readelf -d "$kc" > $NAME.out || fail=y

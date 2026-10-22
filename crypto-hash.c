@@ -17,7 +17,6 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <arpa/inet.h>
 #include "crypto-afalg.h"
 
 /*
@@ -92,19 +91,6 @@ static size_t read_data(size_t block_size, char *ibuf)
 	return 0;
 }
 
-static void process_data(int fd, char *ibuf, size_t size)
-{
-	int ret;
-
-	ret = afalg_send(fd, ibuf, size);
-       	if (ret < size) {
-		if (ret < 0)
-               		fatal("sendmsg(): %m");
-		else
-			fatal("too few data sent to the kernel!");
-       	}
-}
-
 static void update_hash(struct kc_hash *h, char *ibuf, size_t size)
 {
 	struct kc_error e;
@@ -122,29 +108,6 @@ static void final_hash(struct kc_hash *h, char *buf, size_t size)
 		fatal("%s", e.msg);
 	if (len < size)
 		fatal("too few data received from the kernel!");
-}
-
-static void read_hash(int fd, char *buf, size_t size)
-{
-	int ret;
-
-	ret = afalg_recv(fd, buf, size);
-       	if (ret < size) {
-		if (ret < 0)
-               		fatal("read(): %m");
-		else
-			fatal("too few data received from the kernel!");
-       	}
-}
-
-static void __hash_buffer(int s, char buf[], size_t len,
-                char hash[], size_t hash_len)
-{
-	int fd = __get_afalg_socket(s);
-
-        process_data(fd, buf, len);
-        read_hash(fd, hash, hash_len);
-	close(fd);
 }
 
 /*
@@ -191,90 +154,6 @@ static void print_hash(uint8_t buf[], size_t size)
 		sprintf(hex + 2 * i, "%02x", buf[i]);
 	hex[2 * size] = '\n';
 	write_output(hex, 2 * size + 1);
-}
-
-/*
- * Exported functions
- */
-size_t hash_buffer(char buf[], size_t len,
-		enum afalg_algo_e algo, char key[], size_t key_len,
-		char hash[], size_t hash_len)
-{
-	struct afalg_key akey = {
-		.type = AFALG_KEY_RAW,
-		.raw = { .data = key, .len = key_len },
-	};
-	int fd = create_hash_socket(algo, &akey);
-
-	process_data(fd, buf, len);
-	read_hash(fd, hash, algo_digest_size(algo));
-	close(fd);
-	return algo_digest_size(algo);
-}
-
-int pbkdf2(char pass[], size_t pass_len, char salt[], size_t salt_len,
-	   int iterations,
-	   char key[], size_t key_len, char iv[], size_t iv_len)
-{
-	enum afalg_algo_e algo = AFALG_ALGO_HASH_HMAC_SHA256;
-	char u[algo_key_len(algo)], t[algo_key_len(algo)];
-	char salt_i[salt_len + 4];
-	int current_len = 0;
-	int block = 1;
-	int cpy_len;
-	int s, j, i;
-	int derived_len = key_len + iv_len;
-	char derived[derived_len];
-	struct afalg_key akey = {
-		.type = AFALG_KEY_RAW,
-		.raw = { .data = pass, .len = pass_len },
-	};
-
-	/* Init the AF_ALG context for HMAC-SHA256 with a given pass key */
-	s = __init_hash_socket(algo, &akey);
-
-	memcpy(salt_i, salt, salt_len);
-	while (current_len < derived_len) {
-		/* Prepare the salt || block (big-endian) */
-		uint32_t be_block = htonl(block);
-		memcpy(salt_i + salt_len, &be_block, sizeof(be_block));
-
-		/* Initial u is HMAC-SHA256(pass, salt || block) using
-		 * an existing and already set up AF_ALG context.
-		 */
-		__hash_buffer(s, salt_i, salt_len + 4,
-			u, algo_key_len(algo));
-
-		memcpy(t, u, algo_key_len(algo));
-		for (i = 1; i < iterations; i++) {
-			/* perform the remaining iterations still using
-			 * the already set up AF_ALG context.
-			 */
-			__hash_buffer(s, u, algo_key_len(algo),
-				    u, algo_key_len(algo));
-
-			/* XOR u into t */
-			for (j = 0; j < algo_key_len(algo); j++)
-				t[j] ^= u[j];
-		}
-
-		/* Copy the current block t to the final output */
-		cpy_len = derived_len - current_len;
-		if (cpy_len > algo_key_len(algo))
-			cpy_len = algo_key_len(algo);
-		memcpy(derived + current_len, t, cpy_len);
-		current_len += cpy_len;
-		block++;
-	}
-
-	/* Split the derived output into the key and IV */
-	memcpy(key, derived, key_len);
-	memcpy(iv, derived + key_len, iv_len);
-
-	/* Now safely close the AF_ALG context */
-	close(s);
-
-	return 0;
 }
 
 /*

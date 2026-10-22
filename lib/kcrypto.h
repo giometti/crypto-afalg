@@ -27,6 +27,8 @@
 #define KC_MSG_MAX		1024
 #define KC_HASH_MAX		64	/* the longest digest, SHA-512's */
 #define KC_BLOCK_MAX		32	/* the longest IV the library takes */
+#define KC_OPENSSL_SALT_LEN	8
+#define KC_OPENSSL_HEADER_LEN	16	/* "Salted__" and the salt */
 
 /*
  * Every function that can fail returns one of these and, when its last
@@ -118,6 +120,15 @@ extern int kc_hash_final(struct kc_hash *h, void *md, size_t *md_len,
 extern void kc_hash_free(struct kc_hash *h);
 
 /*
+ * PBKDF2 (RFC 8018) over the HMAC hmac names, as "hmac(sha256)" or a
+ * driver of one, KC_REFUSED when the kernel has none: out_len bytes into
+ * out, iter and out_len at least 1
+ */
+extern int kc_pbkdf2(const char *hmac, const void *pass, size_t pass_len,
+		     const void *salt, size_t salt_len, unsigned int iter,
+		     void *out, size_t out_len, struct kc_error *e);
+
+/*
  * A block cipher in a mode whose IV is one block, such as CBC, with the
  * PKCS#7 padding, by the name of an algorithm or of a driver, KC_REFUSED
  * when the kernel has none; iv_len is the block size too, at most
@@ -143,5 +154,18 @@ extern int kc_cipher_final(struct kc_cipher *c, void *out, size_t *out_len,
 
 /* Clears and frees; NULL is ignored */
 extern void kc_cipher_free(struct kc_cipher *c);
+
+/*
+ * The header openssl enc writes before what it encrypts with a passphrase
+ * and a random salt: "Salted__" and the salt. kc_openssl_header() reads
+ * the salt from the first KC_OPENSSL_HEADER_LEN bytes of the stream,
+ * KC_REFUSED when they do not start with "Salted__" or when len, what
+ * the stream had, is shorter; kc_openssl_header_make() writes one.
+ */
+extern int kc_openssl_header(const void *buf, size_t len,
+			     uint8_t salt[KC_OPENSSL_SALT_LEN],
+			     struct kc_error *e);
+extern void kc_openssl_header_make(uint8_t buf[KC_OPENSSL_HEADER_LEN],
+				   const uint8_t salt[KC_OPENSSL_SALT_LEN]);
 
 #endif /* KCRYPTO_H */

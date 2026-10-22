@@ -28,7 +28,7 @@
 #define MAX_KEY_LEN		64
 #define MAX_PASS_LEN		1024	/* as openssl enc -pass file: */
 #define MAX_IV_LEN		32
-#define SALT_LEN		8
+#define SALT_LEN		KC_OPENSSL_SALT_LEN
 
 /*
  * Functions
@@ -132,18 +132,21 @@ static size_t read_pass(const char *file, char *pass, size_t size)
 	return len;
 }
 
+/*
+ * The header of openssl enc; what a short stream lacks reads as zeros, so
+ * that a stream without "Salted__" is told apart from one cut in its salt
+ */
 static size_t detect_salt(char *salt)
 {
-	char marker[] = "Salted__";
+	uint8_t hdr[KC_OPENSSL_HEADER_LEN] = { 0 };
 	size_t size;
 
-	size = fread(salt, 1, strlen(marker), stdin);
-	if (size != strlen(marker))
+	size = fread(hdr, 1, sizeof(hdr), stdin);
+	if (size < KC_OPENSSL_HEADER_LEN - SALT_LEN)
 		fatal("cannot read header");
-	if (memcmp(marker, salt, strlen(marker)) != 0)
+	if (kc_openssl_header(hdr, sizeof(hdr), (uint8_t *) salt, NULL))
 		return 0;
-	size = fread(salt, 1, SALT_LEN, stdin);
-	if (size != SALT_LEN)
+	if (size < sizeof(hdr))
 		fatal("cannot read salt data");
 
 	return SALT_LEN;
@@ -165,17 +168,41 @@ static size_t read_data(char *ibuf)
 	return size;
 }
 
-static void write_salt(char *salt, size_t salt_len)
+/* Two writes, so that each part fails with the message it always had */
+static void write_salt(char *salt)
 {
-	char marker[] = "Salted__";
-	size_t size;
+	uint8_t hdr[KC_OPENSSL_HEADER_LEN];
+	size_t magic = KC_OPENSSL_HEADER_LEN - SALT_LEN;
 
-	size = fwrite(marker, 1, strlen(marker), stdout);
-	if (size != strlen(marker))
+	kc_openssl_header_make(hdr, (uint8_t *) salt);
+	if (fwrite(hdr, 1, magic, stdout) != magic)
 		fatal("cannot write header");
-	size = fwrite(salt, 1, SALT_LEN, stdout);
-	if (size != SALT_LEN)
+	if (fwrite(hdr + magic, 1, SALT_LEN, stdout) != SALT_LEN)
 		fatal("cannot write salt data");
+}
+
+/*
+ * As openssl enc -pbkdf2: the key and then the IV out of PBKDF2 over
+ * HMAC-SHA256. The driver forced applies to this HMAC too, and a negative
+ * count of iterations is taken as one: crypto-afalg always did so.
+ */
+static void derive(enum afalg_algo_e algo, const char *pass, size_t pass_len,
+		   const char *salt, size_t salt_len, int iterations,
+		   char *key, char *iv)
+{
+	enum afalg_algo_e hmac = AFALG_ALGO_HASH_HMAC_SHA256;
+	char out[MAX_KEY_LEN + MAX_IV_LEN];
+	struct kc_error e;
+
+	if (use_driver)
+		check_driver("hash", hmac);
+	if (kc_pbkdf2(use_driver ? use_driver : algo_kname(hmac), pass,
+		      pass_len, salt, salt_len, iterations < 1 ? 1 : iterations,
+		      out, algo_key_len(algo) + algo_iv_len(algo), &e))
+		open_failed("hash", hmac, &e);
+	memcpy(key, out, algo_key_len(algo));
+	memcpy(iv, out + algo_key_len(algo), algo_iv_len(algo));
+	explicit_bzero(out, sizeof(out));
 }
 
 /*
@@ -368,8 +395,8 @@ void do_crypt(int argc, char *argv[])
 		kc_key_free(kkey);
 		kkey = NULL;
 		iv_len = algo_iv_len(algo);
-		pbkdf2(pass, pass_len, salt, salt_len, iterations,
-			key, key_len, iv, iv_len);
+		derive(algo, pass, pass_len, salt, salt_len, iterations,
+			key, iv);
 
 	} else if (salt_len > 0)
 		fatal("salt specified with no pass key!");
@@ -387,7 +414,7 @@ void do_crypt(int argc, char *argv[])
 	c = open_cipher(algo, kkey, encrypt, iv, iv_len);
 
 	if (generated_salt)
-		write_salt(salt, salt_len);
+		write_salt(salt);
 
 	BUG_ON(algo_block_size(algo) > MAX_BLOCK_SIZE);
 	BUG_ON(algo_block_size(algo) != iv_len);

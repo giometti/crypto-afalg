@@ -25,9 +25,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
-#include <linux/if_alg.h>
+#include <linux/if_alg.h>	/* ALG_SET_KEY_BY_KEY_SERIAL: -S offered */
 #include <string.h>
-#include "afalg.h"
 #include "kcrypto.h"
 #include "misc.h"
 
@@ -103,23 +102,6 @@ extern struct kc_hash *open_hash(enum afalg_algo_e algo,
 extern struct kc_cipher *open_cipher(enum afalg_algo_e algo,
 				     const struct kc_key *key, bool encrypt,
 				     const char *iv, size_t iv_len);
-extern int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
-		const struct afalg_key *key);
-extern int __get_afalg_socket(int s);
-extern int create_afalg_socket(const char *type, enum afalg_algo_e algo,
-		const struct afalg_key *key);
-#define __init_hash_socket(algo, key) \
-		__init_afalg_socket("hash", algo, key)
-#define create_hash_socket(algo, key) \
-		create_afalg_socket("hash", algo, key)
-
-/* Exported functions */
-extern size_t hash_buffer(char buf[], size_t len,
-		enum afalg_algo_e algo, char key[], size_t key_len,
-		char hash[], size_t hash_len);
-extern int pbkdf2(char pass[], size_t pass_len, char salt[], size_t salt_len,
-		int iterations,
-		char key[], size_t key_len, char iv[], size_t iv_len);
 
 /* Crypto actions */
 extern void do_crypt(int argc, char *argv[]);
