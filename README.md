@@ -162,7 +162,7 @@ $ ./crypto-afalg decrypt aes-128-cbc \
     -V 3dafba429d9eb430b422da802c9fac41 < file.enc > file.txt
 ```
 
-`decrypt` checks only the length and the padding of the ciphertext: a truncated ciphertext, and almost always a wrong key, make it print `bad decrypt` and exit with status 1; a read or write error also exits with status 1, with its own message. Data already written to the output before an error must be discarded: check the exit status, not the output. This is not an authentication: a wrong IV or a corrupted ciphertext usually decrypts, without any error, to partly wrong data.
+`decrypt` checks only the length and the padding of the ciphertext: a truncated ciphertext, and almost always a wrong key, make it print `bad decrypt` and exit with status 1; a read or write error also exits with status 1, with its own message. An error the kernel reports while encrypting or decrypting stops the command with its message and exit status 1 too; up to v1.3.0 it went unnoticed, and crypto-afalg wrote whatever its buffer held, with exit status 0. Data already written to the output before an error must be discarded: check the exit status, not the output. This is not an authentication: a wrong IV or a corrupted ciphertext usually decrypts, without any error, to partly wrong data.
 
 Encrypted files are OpenSSL compatible (except with `caam(aes-256-cbc)`, whose key is a CAAM tagged key), so you can test them like this:
 

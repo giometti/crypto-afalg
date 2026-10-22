@@ -19,8 +19,8 @@ Every function that can fail returns one of four statuses and, when its last arg
 | status | meaning |
 |---|---|
 | `KC_OK` (0) | done |
-| `KC_REFUSED` (1) | the answer is no: the kernel has no such algorithm, `/proc/crypto` lists no such driver |
-| `KC_USAGE` (2) | an argument is wrong: an unknown type, a name too long, a malformed key spec, no room for the digest |
+| `KC_REFUSED` (1) | the answer is no: the kernel has no such algorithm, `/proc/crypto` lists no such driver, a ciphertext of the wrong length or with a wrong padding ("bad decrypt") |
+| `KC_USAGE` (2) | an argument is wrong: an unknown type, a name too long, a malformed key spec, no room for the digest, a cipher without a key or with an IV of 0 bytes or longer than `KC_BLOCK_MAX`, a hash or a cipher used after its end |
 | `KC_FAILED` (3) | it could not be done: a socket that does not open, a key that is not found or that cannot be used, `/proc/crypto` that cannot be read; also an HMAC without a key, at its first update or at its final (`ENOKEY`), and a key given to a hash that takes none, such as `sha256`, at the opening (`ENOSYS`) |
 
 `KC_REFUSED` and `KC_FAILED` are kept apart on purpose: a "no" is an answer, a failure is the lack of one.
@@ -39,3 +39,44 @@ Every function that can fail returns one of four statuses and, when its last arg
 | `kc_hash_update(h, in, len, e)` | adds data, in as many calls as needed |
 | `kc_hash_final(h, md, &md_len, e)` | gives the digest and ends the hash: `md_len` is the room in `md` on the way in, and the length of the digest on the way out; `KC_HASH_MAX` is always enough, and less room than the digest is `KC_USAGE`. After it, and after a call that fails, the hash can only be freed |
 | `kc_hash_free(h)` | frees the hash |
+| `kc_cipher_open(&c, name, k, encrypt, iv, iv_len, e)` | a block cipher in a mode whose IV is one block, such as CBC, by the name of an algorithm or of a driver, for encryption (`encrypt` not 0) or decryption, with the PKCS#7 padding, `KC_REFUSED` when the kernel has no such algorithm; `iv_len` is the block size too, at most `KC_BLOCK_MAX`, and `k` can be freed once the cipher is open |
+| `kc_cipher_update(c, in, len, out, &out_len, e)` | takes any length and writes whole blocks into `out`, which needs room for `len + iv_len` bytes and must not overlap `in`, setting `out_len`; in decryption it holds the last block back |
+| `kc_cipher_final(c, out, &out_len, e)` | writes the rest, at most `iv_len` bytes: in encryption the last block with its padding, a whole block of padding when the input is a multiple of the block; in decryption the last block without its padding, or `KC_REFUSED` when the length or the padding is wrong. This is not an authentication: a wrong IV, or a ciphertext changed in the middle, decrypts without any error, and what was written before a `KC_REFUSED` is to be discarded. It ends the cipher: after it, and after a call that fails, the cipher can only be freed |
+| `kc_cipher_free(c)` | clears and frees the cipher |
+
+## A typical use
+
+A cipher: a key, then the cipher opened with it, then the data through `kc_cipher_update()` in as many calls as needed, then `kc_cipher_final()`. A hash is the same with `kc_hash_open()`, `kc_hash_update()` and `kc_hash_final()`, which gives the digest.
+
+This program encrypts a line with AES-128-CBC, by the algorithm name `cbc(aes)`, which lets the kernel choose the driver; a driver name, such as `cbc-aes-ce`, takes exactly that one (check it with `kc_driver_check()` first):
+
+```c
+#include <stdio.h>
+#include <kcrypto.h>
+
+int main(void)
+{
+	static const char key[] = "0123456789abcdef";
+	static const char iv[16] = { 0 };
+	static const char in[] = "Hello, kernel!\n";
+	unsigned char out[sizeof(in) + 2 * KC_BLOCK_MAX];
+	struct kc_cipher *c = NULL;
+	struct kc_key *k = NULL;
+	struct kc_error e;
+	size_t len, last;
+
+	if (kc_key_raw(&k, key, sizeof(key) - 1, &e) ||
+	    kc_cipher_open(&c, "cbc(aes)", k, 1, iv, sizeof(iv), &e) ||
+	    kc_cipher_update(c, in, sizeof(in) - 1, out, &len, &e) ||
+	    kc_cipher_final(c, out + len, &last, &e)) {
+		fprintf(stderr, "kcrypto: %s\n", e.msg);
+		return 1;
+	}
+	fwrite(out, 1, len + last, stdout);
+	kc_cipher_free(c);
+	kc_key_free(k);
+	return 0;
+}
+```
+
+Its output is the same as that of `openssl enc -aes-128-cbc -K 30313233343536373839616263646566 -iv 00000000000000000000000000000000` on the same line.
