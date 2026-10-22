@@ -94,8 +94,13 @@ extern size_t read_file(const char *label,
                                 const char *file, char *data, size_t len);
 extern size_t read_key(const char *file, char *key, size_t key_len);
 extern void num_key(const char *str, struct afalg_key *key);
+extern void spec_key(const char *str, struct kc_key **key);
 extern size_t str_key(char *str, char **key);
 
+extern void open_failed(const char *type, enum afalg_algo_e algo,
+			const struct kc_error *e) __attribute__((noreturn));
+extern struct kc_hash *open_hash(enum afalg_algo_e algo,
+				 const struct kc_key *key);
 extern int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 		const struct afalg_key *key);
 extern int __get_afalg_socket(int s);

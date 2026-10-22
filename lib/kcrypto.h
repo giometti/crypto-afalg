@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #define KC_MSG_MAX		1024
+#define KC_HASH_MAX		64	/* the longest digest, SHA-512's */
 
 /*
  * Every function that can fail returns one of these and, when its last
@@ -65,5 +66,54 @@ extern int kc_algo_available(const char *type, const char *name,
  */
 extern int kc_driver_check(const char *type, const char *driver,
 			   const char *algo, struct kc_error *e);
+
+/* A key: raw bytes, or a keyring key the kernel uses by its serial */
+struct kc_key;
+
+/* Raw bytes, copied; an empty key is a key too, as for HMAC */
+extern int kc_key_raw(struct kc_key **k, const void *data, size_t len,
+		      struct kc_error *e);
+
+/*
+ * A keyring key from "<serial>" or "[<keyring>,]<type>,<description>",
+ * the keyring being @u (also "user", the default) or @s (also
+ * "session"). With two commas the first field is the keyring, so a
+ * description with a comma needs the keyring. A serial is taken as it
+ * is, not looked up; a description is refused when more than one key
+ * holds it in the keyrings the caller can read. The kernel takes a
+ * keyring key from Linux 6.2, and the library only when built with an
+ * <linux/if_alg.h> that defines ALG_SET_KEY_BY_KEY_SERIAL: otherwise
+ * what is opened with it is KC_FAILED (EOPNOTSUPP from such a library,
+ * the kernel's errno from an older kernel).
+ */
+extern int kc_key_spec(struct kc_key **k, const char *spec,
+		       struct kc_error *e);
+
+/* The serial of a keyring key, 0 for raw bytes */
+extern int32_t kc_key_serial(const struct kc_key *k);
+
+/* Clears raw bytes and frees; NULL is ignored */
+extern void kc_key_free(struct kc_key *k);
+
+/*
+ * A hash or an HMAC, by the name of an algorithm or of a driver,
+ * KC_REFUSED when the kernel has none; k is NULL for an algorithm without
+ * a key, and can be freed once the hash is open. The data go in with any
+ * number of kc_hash_update(), then kc_hash_final() gives the digest:
+ * md_len is the room in md on the way in, KC_HASH_MAX always enough, and
+ * the length of the digest on the way out. kc_hash_final(), and a call
+ * that fails, end the hash: after them, only kc_hash_free().
+ */
+struct kc_hash;
+
+extern int kc_hash_open(struct kc_hash **h, const char *name,
+			const struct kc_key *k, struct kc_error *e);
+extern int kc_hash_update(struct kc_hash *h, const void *in, size_t len,
+			  struct kc_error *e);
+extern int kc_hash_final(struct kc_hash *h, void *md, size_t *md_len,
+			 struct kc_error *e);
+
+/* NULL is ignored */
+extern void kc_hash_free(struct kc_hash *h);
 
 #endif /* KCRYPTO_H */

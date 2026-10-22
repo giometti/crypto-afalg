@@ -105,6 +105,25 @@ static void process_data(int fd, char *ibuf, size_t size)
        	}
 }
 
+static void update_hash(struct kc_hash *h, char *ibuf, size_t size)
+{
+	struct kc_error e;
+
+	if (kc_hash_update(h, ibuf, size, &e))
+		fatal("%s", e.msg);
+}
+
+static void final_hash(struct kc_hash *h, char *buf, size_t size)
+{
+	struct kc_error e;
+	size_t len = MAX_DIGEST_SIZE;
+
+	if (kc_hash_final(h, buf, &len, &e))
+		fatal("%s", e.msg);
+	if (len < size)
+		fatal("too few data received from the kernel!");
+}
+
 static void read_hash(int fd, char *buf, size_t size)
 {
 	int ret;
@@ -305,12 +324,13 @@ void do_hash(int argc, char *argv[])
                 { "passfile",	required_argument,	NULL, 'p' },
                 { 0, 0, 0, 0 }
         };
-        int fd;
+	struct kc_hash *h;
+	struct kc_error e;
 	enum afalg_algo_e algo;
         char keybuf[MAX_KEY_LEN], *key = keybuf, *keyalloc = NULL;
         size_t key_len = 0;
 	bool key_given = false;
-	struct afalg_key akey = { .type = AFALG_KEY_RAW };
+	struct kc_key *kkey = NULL;
 	char ibuf[BUF_SIZE], obuf[MAX_DIGEST_SIZE];
 	size_t nread;
 
@@ -366,7 +386,7 @@ void do_hash(int argc, char *argv[])
 				break;
 			case 'S':
 #ifdef ALG_SET_KEY_BY_KEY_SERIAL
-				num_key(optarg, &akey);
+				spec_key(optarg, &kkey);
 #else
 				fatal("option -S|--keyserial unsupported");
 #endif
@@ -387,13 +407,13 @@ void do_hash(int argc, char *argv[])
         }
 	if (algo_key_len(algo) > 0 && !key_given)
                 fatal("no key defined!");
-	if (akey.type == AFALG_KEY_RAW) {
+	if (!kkey) {
 		dbg_dump(key, key_len, "key:");
-		akey.raw.data = key;
-		akey.raw.len = key_len;
+		if (key_given && kc_key_raw(&kkey, key, key_len, &e))
+			fatal("%s", e.msg);
 	}
 
-	fd = create_hash_socket(algo, key_given ? &akey : NULL);
+	h = open_hash(algo, kkey);
 
 	BUG_ON(algo_digest_size(algo) > MAX_DIGEST_SIZE);
 	do {
@@ -401,13 +421,14 @@ void do_hash(int argc, char *argv[])
 		if (nread == 0)
 			break;
 
-		process_data(fd, ibuf, nread);
+		update_hash(h, ibuf, nread);
 	} while (nread > 0);
 
-	read_hash(fd, obuf, algo_digest_size(algo));
+	final_hash(h, obuf, algo_digest_size(algo));
 	print_hash((uint8_t *) obuf, algo_digest_size(algo));
 	flush_output();
 
-	close(fd);
+	kc_hash_free(h);
+	kc_key_free(kkey);
 	free(keyalloc);
 }

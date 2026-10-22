@@ -4,6 +4,30 @@ echo -n "kernel algo [bind]: "
 
 . test-preset.inc
 
+fail=n
+key=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+iv=a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
+seq 1 500 > $NAME.in
+
+# An algorithm of the table the kernel does not have is not available,
+# asked to the kernel: the CAAM one, where /proc/crypto does not list it
+if grep -q -E '^name *: tk\(cbc\(aes\)\)$' /proc/crypto; then
+	echo -n "(tk(cbc(aes)) listed) "
+else
+	rc=0
+	crypto-afalg encrypt check-kalgo 'tk(cbc(aes))' || rc=$?
+	[ $rc -eq 1 ] || fail=y
+	head -c 52 /dev/zero | od -An -tx1 -v | tr -d ' \n' > $NAME.k52
+	rc=0
+	crypto-afalg encrypt 'caam(aes-256-cbc)' -K $(cat $NAME.k52) -V $iv \
+		< $NAME.in > /dev/null 2> $NAME.err || rc=$?
+	if [ $rc -ne 1 ] || ! grep -qF \
+		'algo "tk(cbc(aes))" is not available' $NAME.err; then
+		echo "caam(aes-256-cbc): exit $rc, $(cat $NAME.err)"
+		fail=y
+	fi
+fi
+
 # A template the kernel builds on its first use, such as hmac(sha256), is
 # listed in /proc/crypto only after that use. In a mount namespace of the
 # test's own, a /proc/crypto that lists none of the algorithms used here
@@ -11,21 +35,17 @@ echo -n "kernel algo [bind]: "
 echo > $NAME.probe
 if ! unshare -rm sh -c "mount --bind $PWD/$NAME.probe /proc/crypto" \
 	2> /dev/null; then
-	echo Skipped
-	exit 0
+	echo -n "(no mount namespace) "
+	. test-end.inc
 fi
 
 # A kernel without the algorithms has nothing to show here
 if ! check-kalgo hash 'hmac(sha256)' ||
 	! check-kalgo encrypt 'cbc(aes)'; then
-	echo Skipped
-	exit 0
+	echo -n "(no hmac(sha256) or cbc(aes)) "
+	. test-end.inc
 fi
 
-fail=n
-key=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
-iv=a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
-seq 1 500 > $NAME.in
 openssl dgst -sha256 -mac HMAC -macopt hexkey:$key < $NAME.in |
 	sed 's/^.*= //' > $NAME.hmac.ref
 openssl enc -aes-256-cbc -K $key -iv $iv < $NAME.in > $NAME.enc.ref
@@ -64,24 +84,5 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:secret < $NAME.pass.out |
 	cmp - $NAME.in || fail=y
 grep -q '^crypto-afalg: - hmac-sha-256 ' $NAME.hlist || fail=y
 grep -q '^crypto-afalg: - aes-256-cbc ' $NAME.clist || fail=y
-
-# An algorithm of the table the kernel does not have is not available,
-# asked to the kernel: the CAAM one, where /proc/crypto does not list it
-if grep -q -E '^name *: tk\(cbc\(aes\)\)$' /proc/crypto; then
-	echo -n "(tk(cbc(aes)) listed) "
-else
-	rc=0
-	crypto-afalg encrypt check-kalgo 'tk(cbc(aes))' || rc=$?
-	[ $rc -eq 1 ] || fail=y
-	head -c 52 /dev/zero | od -An -tx1 -v | tr -d ' \n' > $NAME.k52
-	rc=0
-	crypto-afalg encrypt 'caam(aes-256-cbc)' -K $(cat $NAME.k52) -V $iv \
-		< $NAME.in > /dev/null 2> $NAME.err || rc=$?
-	if [ $rc -ne 1 ] || ! grep -qF \
-		'algo "tk(cbc(aes))" is not available' $NAME.err; then
-		echo "caam(aes-256-cbc): exit $rc, $(cat $NAME.err)"
-		fail=y
-	fi
-fi
 
 . test-end.inc

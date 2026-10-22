@@ -183,6 +183,16 @@ void num_key(const char *str, struct afalg_key *key)
 	dbg("key_id=%ld", (long) key->serial);
 }
 
+/* The same, as a libkcrypto key */
+void spec_key(const char *str, struct kc_key **key)
+{
+	struct kc_error e;
+
+	if (kc_key_spec(key, str, &e))
+		fatal("%s", e.msg);
+	dbg("key_id=%ld", (long) kc_key_serial(*key));
+}
+
 size_t str_key(char *str, char **key)
 {
 	*key = str;
@@ -206,6 +216,30 @@ void check_driver(const char *type, enum afalg_algo_e algo)
 		fatal("driver \"%s\" is not available or not valid %s(%s) algo",
 			use_driver, type, algo_kname(algo));
 	}
+}
+
+/* A failed open: KC_REFUSED is the kernel's "no such algorithm" */
+void open_failed(const char *type, enum afalg_algo_e algo,
+		 const struct kc_error *e)
+{
+	if (e->status == KC_REFUSED && !use_driver)
+		fatal("algo \"%s\" is not available or not valid %s algo",
+			algo_kname(algo), type);
+	fatal("%s", e->msg);
+}
+
+/* Opened as crypto-afalg always did: a driver forced is checked first */
+struct kc_hash *open_hash(enum afalg_algo_e algo, const struct kc_key *key)
+{
+	struct kc_hash *h;
+	struct kc_error e;
+
+	if (use_driver)
+		check_driver("hash", algo);
+	if (kc_hash_open(&h, use_driver ? use_driver : algo_kname(algo), key,
+			 &e))
+		open_failed("hash", algo, &e);
+	return h;
 }
 
 int __init_afalg_socket(const char *type, enum afalg_algo_e algo,

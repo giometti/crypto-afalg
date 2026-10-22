@@ -22,6 +22,21 @@
 
 #include "kc-internal.h"
 
+/* A key as a backend sets it: raw bytes, or a keyring key by serial */
+struct kc_key {
+	enum {
+		KC_KEY_RAW,
+		KC_KEY_SERIAL,
+	} type;
+	int32_t serial;		/* a key_serial_t of keyutils.h */
+	size_t len;
+	unsigned char data[];
+};
+
+/* An algorithm with its key, and one operation on it, as a backend has them */
+struct kc_tfm;
+struct kc_op;
+
 /*
  * What a backend does for the library; every function returns a
  * kc_status and fills e as the library's own functions do
@@ -30,6 +45,21 @@ struct kc_backend {
 	/* Whether the kernel takes name as an algorithm of type */
 	int (*available)(const char *type, const char *name,
 			 struct kc_error *e);
+
+	/* An algorithm or a driver of type, by name */
+	int (*open)(struct kc_tfm **t, const char *type, const char *name,
+		    struct kc_error *e);
+	int (*set_key)(struct kc_tfm *t, const struct kc_key *k,
+		       struct kc_error *e);
+	void (*close)(struct kc_tfm *t);
+
+	/* One operation: data in, all of it, then the result out */
+	int (*start)(struct kc_tfm *t, struct kc_op **op, struct kc_error *e);
+	int (*send)(struct kc_op *op, const void *buf, size_t len,
+		    struct kc_error *e);
+	int (*recv)(struct kc_op *op, void *buf, size_t len, size_t *got,
+		    struct kc_error *e);
+	void (*end)(struct kc_op *op);
 };
 
 /* The AF_ALG backend, the only one: no choice of backend is exposed */
