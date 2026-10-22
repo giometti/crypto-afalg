@@ -1,6 +1,6 @@
 # libafalg
 
-`libafalg.so.0` is the `AF_ALG` socket layer of crypto-afalg, as a shared library for other tools too. All its functions but one wrap one step each of the `AF_ALG` interface of the Linux kernel: open a socket, bind it to an algorithm or a driver, set a key, open an operation, set its direction and IV, pass data in and read the result; the other, `afalg_key_from_spec()`, finds a keyring key for `afalg_set_key()`. The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
+`libafalg.so.0` is the `AF_ALG` socket layer that craf still uses, as a shared library for other tools too; crypto-afalg is built on [libkcrypto](libkcrypto.md). All its functions but one wrap one step each of the `AF_ALG` interface of the Linux kernel: open a socket, bind it to an algorithm or a driver, set a key, open an operation, set its direction and IV, pass data in and read the result; the other, `afalg_key_from_spec()`, finds a keyring key for `afalg_set_key()`. The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
 
 ## Stability
 
@@ -8,7 +8,7 @@ The interface, declared in `afalg.h`, is **unstable until version 1.0**. Its son
 
 ## Building and linking
 
-`make` builds `libafalg.so.0` together with crypto-afalg, and `make install` installs it with its link-time name `libafalg.so` and the header `afalg.h` (see "How to Install" in the README). Compile a program with `#include <afalg.h>` and link it with `-lafalg` against an installed copy: the build directory holds no `libafalg.so`. The library itself needs `libkeyutils` (see Requirements in the README). Like the rest of the project, the library is licensed under the GNU GPL v3.0 or later.
+`make` builds `libafalg.so.0` together with the tools, and `make install` installs it with its link-time name `libafalg.so` and the header `afalg.h` (see "How to Install" in the README). Compile a program with `#include <afalg.h>` and link it with `-lafalg` against an installed copy: the build directory holds no `libafalg.so`. The library itself needs `libkeyutils` (see Requirements in the README). Like the rest of the project, the library is licensed under the GNU GPL v3.0 or later.
 
 ## Errors
 

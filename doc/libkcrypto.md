@@ -1,6 +1,6 @@
 # libkcrypto
 
-`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them, in place of OpenSSL's `libcrypto`, which holds its keys in the program's memory. crypto-afalg moves onto it a part at a time; craf still uses [libafalg](libafalg.md). The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
+`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them, in place of OpenSSL's `libcrypto`, which holds its keys in the program's memory. crypto-afalg is built on it; craf still uses [libafalg](libafalg.md). The library prints nothing and never exits: what to say about a failure, and what to do then, is the caller's.
 
 Today it reaches the kernel through `AF_ALG`, its only backend. The interface is made of keys, algorithms and drivers, not of sockets, so that a backend added later changes nothing for its users; the type names (`skcipher`, `hash`) and the messages still come from `AF_ALG`.
 
@@ -19,8 +19,8 @@ Every function that can fail returns one of four statuses and, when its last arg
 | status | meaning |
 |---|---|
 | `KC_OK` (0) | done |
-| `KC_REFUSED` (1) | the answer is no: the kernel has no such algorithm, `/proc/crypto` lists no such driver, a ciphertext of the wrong length or with a wrong padding ("bad decrypt") |
-| `KC_USAGE` (2) | an argument is wrong: an unknown type, a name too long, a malformed key spec, no room for the digest, a cipher without a key or with an IV of 0 bytes or longer than `KC_BLOCK_MAX`, a hash or a cipher used after its end |
+| `KC_REFUSED` (1) | the answer is no: the kernel has no such algorithm, `/proc/crypto` lists no such driver, a ciphertext of the wrong length or with a wrong padding ("bad decrypt"), an `openssl enc` header that is truncated or does not start with `Salted__` |
+| `KC_USAGE` (2) | an argument is wrong: an unknown type, a name too long, a malformed key spec, no room for the digest, a cipher without a key or with an IV of 0 bytes or longer than `KC_BLOCK_MAX`, a hash or a cipher used after its end, no iteration or no output for PBKDF2 |
 | `KC_FAILED` (3) | it could not be done: a socket that does not open, a key that is not found or that cannot be used, `/proc/crypto` that cannot be read; also an HMAC without a key, at its first update or at its final (`ENOKEY`), and a key given to a hash that takes none, such as `sha256`, at the opening (`ENOSYS`) |
 
 `KC_REFUSED` and `KC_FAILED` are kept apart on purpose: a "no" is an answer, a failure is the lack of one.
@@ -43,6 +43,11 @@ Every function that can fail returns one of four statuses and, when its last arg
 | `kc_cipher_update(c, in, len, out, &out_len, e)` | takes any length and writes whole blocks into `out`, which needs room for `len + iv_len` bytes and must not overlap `in`, setting `out_len`; in decryption it holds the last block back |
 | `kc_cipher_final(c, out, &out_len, e)` | writes the rest, at most `iv_len` bytes: in encryption the last block with its padding, a whole block of padding when the input is a multiple of the block; in decryption the last block without its padding, or `KC_REFUSED` when the length or the padding is wrong. This is not an authentication: a wrong IV, or a ciphertext changed in the middle, decrypts without any error, and what was written before a `KC_REFUSED` is to be discarded. It ends the cipher: after it, and after a call that fails, the cipher can only be freed |
 | `kc_cipher_free(c)` | clears and frees the cipher |
+| `kc_pbkdf2(hmac, pass, pass_len, salt, salt_len, iter, out, out_len, e)` | PBKDF2 (RFC 8018) over an HMAC by the name of the algorithm, such as `hmac(sha256)`, or of a driver of one, `KC_REFUSED` when the kernel has no such HMAC, `KC_FAILED` (`ENOSYS`) for a hash that is not an HMAC, such as `sha256`: `out_len` bytes into `out`; `iter` and `out_len` are at least 1 |
+| `kc_openssl_header(buf, len, salt, e)` | the salt of the header that `openssl enc` writes before what it encrypts with a passphrase and a random salt, `Salted__` and 8 bytes, from the first `KC_OPENSSL_HEADER_LEN` bytes of the stream; `KC_REFUSED` when they do not start with `Salted__`, or when `len`, what the stream had, is shorter |
+| `kc_openssl_header_make(buf, salt)` | writes such a header |
+
+With these, a file of `openssl enc -pbkdf2` and its defaults is decrypted by reading the header, deriving `kc_pbkdf2()` over `hmac(sha256)`, 10000 iterations, as many bytes as the key and the IV together, the key first, and decrypting the rest of the file with them.
 
 ## A typical use
 

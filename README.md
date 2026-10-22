@@ -258,11 +258,11 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## libkcrypto
 
-`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg moves onto it a part at a time. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
+`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg is built on it. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
 
 ## libafalg
 
-`libafalg.so.0` is the `AF_ALG` socket layer that craf, and crypto-afalg for what has not moved to libkcrypto yet, use, as a shared library for other tools too. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libafalg.md](doc/libafalg.md).
+`libafalg.so.0` is the `AF_ALG` socket layer that craf still uses, as a shared library for other tools too. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libafalg.md](doc/libafalg.md).
 
 ## craf
 
