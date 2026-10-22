@@ -6,7 +6,7 @@ LIB = libafalg.so.0
 LIB_OBJS = afalg.o
 KC = libkcrypto.so.0
 KC_OBJS = lib/kc-error.o lib/kc-driver.o lib/kc-key.o lib/kc-hash.o \
-	lib/backend/kc-afalg.o
+	lib/kc-cipher.o lib/backend/kc-afalg.o
 KC_CHECK = kc-check
 KC_CHECK_OBJS = tests/lib/kc-check.o
 DEPS := $(OBJS:.o=.d) $(CRAF_OBJS:.o=.d) $(LIB_OBJS:.o=.d) \

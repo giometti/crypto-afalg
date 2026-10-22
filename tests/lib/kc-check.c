@@ -42,6 +42,10 @@ static void __attribute__((noreturn)) usage(void)
 		"    hex:<bytes> or spec:<spec>\n"
 		"  hash-after <name> <room> final|update: after a final with\n"
 		"    room bytes, the status of one more call\n"
+		"  cipher enc|dec <name> <key> <iv>: stdin in pieces of many\n"
+		"    sizes, the result on stdout; <iv> in hex\n"
+		"  cipher-after enc|dec <name> <key> <iv>: after a final, the\n"
+		"    status of one more update\n"
 		"exhaust: no file descriptor left before the command\n"
 		"exit status: the kc_status, %d for a wrong command line\n",
 		EXIT_USAGE);
@@ -146,6 +150,26 @@ static void print_hex(const unsigned char *buf, size_t len)
 	printf("\n");
 }
 
+/* What kc-check writes is all there, or it is no check */
+static void put(const void *buf, size_t len)
+{
+	if (fwrite(buf, 1, len, stdout) != len) {
+		perror("kc-check: write");
+		exit(EXIT_USAGE);
+	}
+}
+
+static void *xmalloc(size_t size)
+{
+	void *p = malloc(size);
+
+	if (!p) {
+		perror("kc-check: malloc");
+		exit(EXIT_USAGE);
+	}
+	return p;
+}
+
 static int key_spec(const char *spec, struct kc_error *e)
 {
 	struct kc_key *k;
@@ -181,6 +205,69 @@ static int hash(const char *name, const char *key, size_t room,
 		print_hex(md, room);
 	kc_hash_free(h);
 	kc_key_free(k);
+	return status;
+}
+
+static int cipher(const char *dir, const char *name, const char *key,
+		  const char *iv_hex, struct kc_error *e)
+{
+	unsigned char buf[PIECE_MAX], iv[64], *out;
+	struct kc_cipher *c = NULL;
+	struct kc_key *k;
+	size_t iv_len, n, len, i = 0;
+	int status;
+
+	if (strcmp(dir, "enc") && strcmp(dir, "dec"))
+		usage();
+	iv_len = parse_hex(iv_hex, iv, sizeof(iv));
+	status = make_key(key, &k, e);
+	if (!status)
+		status = kc_cipher_open(&c, name, k, strcmp(dir, "enc") == 0,
+					iv, iv_len, e);
+	/* Exactly the room the library asks for, for AddressSanitizer */
+	while (!status && (n = read_piece(buf, &i)) > 0) {
+		out = xmalloc(n + iv_len);
+		status = kc_cipher_update(c, buf, n, out, &len, e);
+		if (!status)
+			put(out, len);
+		free(out);
+	}
+	if (!status) {
+		out = xmalloc(iv_len);
+		status = kc_cipher_final(c, out, &len, e);
+		if (!status)
+			put(out, len);
+		free(out);
+	}
+	kc_cipher_free(c);
+	kc_key_free(k);
+	return status;
+}
+
+/* The key freed once the cipher is open, which must not need it */
+static int cipher_after(const char *dir, const char *name, const char *key,
+			const char *iv_hex, struct kc_error *e)
+{
+	unsigned char iv[64], out[2 * KC_BLOCK_MAX];
+	struct kc_cipher *c;
+	struct kc_key *k;
+	size_t iv_len, len;
+	int status;
+
+	if (strcmp(dir, "enc") && strcmp(dir, "dec"))
+		usage();
+	iv_len = parse_hex(iv_hex, iv, sizeof(iv));
+	status = make_key(key, &k, e);
+	if (status)
+		return status;
+	status = kc_cipher_open(&c, name, k, strcmp(dir, "enc") == 0, iv,
+				iv_len, e);
+	kc_key_free(k);
+	if (status)
+		return status;
+	kc_cipher_final(c, out, &len, e);	/* intentionally ignored */
+	status = kc_cipher_update(c, "x", 1, out, &len, e);
+	kc_cipher_free(c);
 	return status;
 }
 
@@ -248,6 +335,10 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "hash-after") == 0 && argc == 5)
 		status = hash_after(argv[2], strtoul(argv[3], NULL, 10),
 				    argv[4], &e);
+	else if (strcmp(argv[1], "cipher") == 0 && argc == 6)
+		status = cipher(argv[2], argv[3], argv[4], argv[5], &e);
+	else if (strcmp(argv[1], "cipher-after") == 0 && argc == 6)
+		status = cipher_after(argv[2], argv[3], argv[4], argv[5], &e);
 	else if (strcmp(argv[1], "hash") == 0 && (argc == 4 || argc == 5))
 		status = hash(argv[2], argv[3],
 			      argc == 5 ? strtoul(argv[4], NULL, 10) :

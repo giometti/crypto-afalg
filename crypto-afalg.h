@@ -93,7 +93,6 @@ extern size_t parse_key(const char *str, char *key, size_t key_len);
 extern size_t read_file(const char *label,
                                 const char *file, char *data, size_t len);
 extern size_t read_key(const char *file, char *key, size_t key_len);
-extern void num_key(const char *str, struct afalg_key *key);
 extern void spec_key(const char *str, struct kc_key **key);
 extern size_t str_key(char *str, char **key);
 
@@ -101,13 +100,14 @@ extern void open_failed(const char *type, enum afalg_algo_e algo,
 			const struct kc_error *e) __attribute__((noreturn));
 extern struct kc_hash *open_hash(enum afalg_algo_e algo,
 				 const struct kc_key *key);
+extern struct kc_cipher *open_cipher(enum afalg_algo_e algo,
+				     const struct kc_key *key, bool encrypt,
+				     const char *iv, size_t iv_len);
 extern int __init_afalg_socket(const char *type, enum afalg_algo_e algo,
 		const struct afalg_key *key);
 extern int __get_afalg_socket(int s);
 extern int create_afalg_socket(const char *type, enum afalg_algo_e algo,
 		const struct afalg_key *key);
-#define create_cipher_socket(algo, key) \
-		create_afalg_socket("skcipher", algo, key)
 #define __init_hash_socket(algo, key) \
 		__init_afalg_socket("hash", algo, key)
 #define create_hash_socket(algo, key) \

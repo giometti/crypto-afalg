@@ -174,16 +174,6 @@ size_t read_key(const char *file, char *key, size_t key_len)
  *     - <num>
  *     - [<keyring>,]<type>,<name>
  */
-void num_key(const char *str, struct afalg_key *key)
-{
-	char msg[8192];
-
-	if (afalg_key_from_spec(str, key, msg, sizeof(msg)) < 0)
-		fatal("%s", msg);
-	dbg("key_id=%ld", (long) key->serial);
-}
-
-/* The same, as a libkcrypto key */
 void spec_key(const char *str, struct kc_key **key)
 {
 	struct kc_error e;
@@ -240,6 +230,21 @@ struct kc_hash *open_hash(enum afalg_algo_e algo, const struct kc_key *key)
 			 &e))
 		open_failed("hash", algo, &e);
 	return h;
+}
+
+/* Opened as crypto-afalg always did, for one direction and IV */
+struct kc_cipher *open_cipher(enum afalg_algo_e algo, const struct kc_key *key,
+			      bool encrypt, const char *iv, size_t iv_len)
+{
+	struct kc_cipher *c;
+	struct kc_error e;
+
+	if (use_driver)
+		check_driver("skcipher", algo);
+	if (kc_cipher_open(&c, use_driver ? use_driver : algo_kname(algo), key,
+			   encrypt, iv, iv_len, &e))
+		open_failed("skcipher", algo, &e);
+	return c;
 }
 
 int __init_afalg_socket(const char *type, enum afalg_algo_e algo,

@@ -26,6 +26,7 @@
 
 #define KC_MSG_MAX		1024
 #define KC_HASH_MAX		64	/* the longest digest, SHA-512's */
+#define KC_BLOCK_MAX		32	/* the longest IV the library takes */
 
 /*
  * Every function that can fail returns one of these and, when its last
@@ -115,5 +116,32 @@ extern int kc_hash_final(struct kc_hash *h, void *md, size_t *md_len,
 
 /* NULL is ignored */
 extern void kc_hash_free(struct kc_hash *h);
+
+/*
+ * A block cipher in a mode whose IV is one block, such as CBC, with the
+ * PKCS#7 padding, by the name of an algorithm or of a driver, KC_REFUSED
+ * when the kernel has none; iv_len is the block size too, at most
+ * KC_BLOCK_MAX, and k can be freed once the cipher is open.
+ * kc_cipher_update() takes any length and writes whole blocks into out,
+ * which needs room for len + iv_len bytes and must not overlap in; in
+ * decryption it holds the last block back. kc_cipher_final() writes the
+ * rest, at most iv_len bytes: in encryption the padded last block, in
+ * decryption the last block without its padding, or KC_REFUSED when the
+ * length or the padding is wrong ("bad decrypt"); what was already written
+ * is then to be discarded. kc_cipher_final(), and a call that fails, end
+ * the cipher: after them, only kc_cipher_free().
+ */
+struct kc_cipher;
+
+extern int kc_cipher_open(struct kc_cipher **c, const char *name,
+			  const struct kc_key *k, int encrypt, const void *iv,
+			  size_t iv_len, struct kc_error *e);
+extern int kc_cipher_update(struct kc_cipher *c, const void *in, size_t len,
+			    void *out, size_t *out_len, struct kc_error *e);
+extern int kc_cipher_final(struct kc_cipher *c, void *out, size_t *out_len,
+			   struct kc_error *e);
+
+/* Clears and frees; NULL is ignored */
+extern void kc_cipher_free(struct kc_cipher *c);
 
 #endif /* KCRYPTO_H */

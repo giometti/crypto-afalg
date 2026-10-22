@@ -182,6 +182,56 @@ static int afalg_start(struct kc_tfm *t, struct kc_op **op,
 }
 
 /*
+ * The direction and the IV of a cipher; the length covers exactly the two
+ * messages, since the kernel refuses unused room after the last one (EINVAL
+ * from 16 bytes on)
+ */
+static int afalg_set_op_iv(struct kc_op *op, int encrypt, const void *iv,
+			   size_t iv_len, struct kc_error *e)
+{
+	char cbuf[CMSG_SPACE(sizeof(__u32)) +
+		  CMSG_SPACE(sizeof(struct af_alg_iv) + KC_BLOCK_MAX)]
+		__attribute__((aligned(__alignof__(struct cmsghdr)))) = { 0 };
+	struct msghdr msg = { 0 };
+	struct cmsghdr *cmsg;
+	struct af_alg_iv *iv_data;
+	struct iovec iov = { 0 };
+	int err;
+
+	if (iv_len > KC_BLOCK_MAX)
+		return kc_fail(e, KC_USAGE, EINVAL, "invalid IV length %zu",
+			       iv_len);
+	msg.msg_control = cbuf;
+	msg.msg_controllen = CMSG_SPACE(sizeof(__u32)) +
+			     CMSG_SPACE(sizeof(struct af_alg_iv) + iv_len);
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_ALG;
+	cmsg->cmsg_type = ALG_SET_OP;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(__u32));
+	*(__u32 *) CMSG_DATA(cmsg) = encrypt ? ALG_OP_ENCRYPT : ALG_OP_DECRYPT;
+
+	cmsg = CMSG_NXTHDR(&msg, cmsg);
+	cmsg->cmsg_level = SOL_ALG;
+	cmsg->cmsg_type = ALG_SET_IV;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(struct af_alg_iv) + iv_len);
+	iv_data = (struct af_alg_iv *) CMSG_DATA(cmsg);
+	iv_data->ivlen = iv_len;
+	if (iv_len > 0)
+		memcpy(iv_data->iv, iv, iv_len);
+
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	if (sendmsg(op->fd, &msg, MSG_MORE) < 0) {
+		err = errno;
+		return kc_fail(e, KC_FAILED, err, "sendmsg(): %s",
+			       strerror(err));
+	}
+	return kc_ok(e);
+}
+
+/*
  * Always with MSG_MORE: the data continue one operation, so a cipher
  * chains its IV and a hash covers every call up to the read
  */
@@ -248,6 +298,7 @@ const struct kc_backend kc_afalg_backend = {
 	.set_key	= afalg_set_key,
 	.close		= afalg_close,
 	.start		= afalg_start,
+	.set_op_iv	= afalg_set_op_iv,
 	.send		= afalg_send,
 	.recv		= afalg_recv,
 	.end		= afalg_end,

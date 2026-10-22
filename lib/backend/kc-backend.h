@@ -55,6 +55,9 @@ struct kc_backend {
 
 	/* One operation: data in, all of it, then the result out */
 	int (*start)(struct kc_tfm *t, struct kc_op **op, struct kc_error *e);
+	/* Of a cipher only, before the data */
+	int (*set_op_iv)(struct kc_op *op, int encrypt, const void *iv,
+			 size_t iv_len, struct kc_error *e);
 	int (*send)(struct kc_op *op, const void *buf, size_t len,
 		    struct kc_error *e);
 	int (*recv)(struct kc_op *op, void *buf, size_t len, size_t *got,

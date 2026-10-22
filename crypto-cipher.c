@@ -30,12 +30,6 @@
 #define MAX_IV_LEN		32
 #define SALT_LEN		8
 
-static char padding[MAX_BLOCK_SIZE] = {
-	0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
-	0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
-};
-static char unwritten[MAX_BLOCK_SIZE];
-
 /*
  * Functions
  */
@@ -138,12 +132,6 @@ static size_t read_pass(const char *file, char *pass, size_t size)
 	return len;
 }
 
-static void init_afalg_data(int fd, int cmd, char *iv, size_t iv_len)
-{
-	if (afalg_set_op_iv(fd, cmd, iv, iv_len) < 0)
-		fatal("sendmsg(): %m");
-}
-
 static size_t detect_salt(char *salt)
 {
 	char marker[] = "Salted__";
@@ -166,8 +154,7 @@ static size_t generate_salt(char *salt)
 	return getrandom(salt, SALT_LEN, 0);
 }
 
-static size_t read_data(size_t block_size, char *ibuf, int cmd,
-			size_t *last_size)
+static size_t read_data(char *ibuf)
 {
 	size_t size;
 
@@ -175,49 +162,7 @@ static size_t read_data(size_t block_size, char *ibuf, int cmd,
 	/* A short read is the end of the input only if it is not an error */
 	if (size < BUF_SIZE && ferror(stdin))
 		fatal("cannot read input: %m");
-
-	if (size > 0 || cmd == ALG_OP_DECRYPT) {
-		*last_size = size;
-		return size;
-	}
-
-	if (*last_size % block_size == 0) {
-		memcpy(ibuf, padding, block_size);
-		*last_size = block_size - 1;
-		return block_size;
-	}
-	return 0;
-}
-
-static size_t pad_data(size_t block_size, char *buf, size_t size)
-{
-	size_t pad_size = block_size - size % block_size;
-
-	if (pad_size == block_size)
-		return size;
-
-	memset(buf + size, pad_size, pad_size);
-	return size + pad_size;
-}
-
-static void process_data(int fd, char *ibuf, char *obuf, size_t size)
-{
-	int ret;
-
-	ret = afalg_send(fd, ibuf, size);
-       	if (ret < size) {
-		if (ret < 0)
-               		fatal("sendmsg(): %m");
-		else
-			fatal("too few data sent to the kernel!");
-       	}
-	ret = afalg_recv(fd, obuf, size);
-       	if (ret < size) {
-		if (ret < 0)
-               		fatal("read(): %m");
-		else
-			fatal("too few data received from the kernel!");
-       	}
+	return size;
 }
 
 static void write_salt(char *salt, size_t salt_len)
@@ -231,39 +176,6 @@ static void write_salt(char *salt, size_t salt_len)
 	size = fwrite(salt, 1, SALT_LEN, stdout);
 	if (size != SALT_LEN)
 		fatal("cannot write salt data");
-}
-
-static void write_data(size_t block_size, char *obuf, size_t size, int cmd,
-			char unwritten[], size_t *last_unwritten)
-{
-	size_t n, i;
-
-	if (cmd == ALG_OP_DECRYPT) {
-		if (size > block_size) {
-			if (*last_unwritten > 0)
-				write_output(unwritten, *last_unwritten);
-			memcpy(unwritten, obuf + size - block_size, block_size);
-			size -= block_size;
-			*last_unwritten = block_size;
-
-			write_output(obuf, size);
-		} else if (size == block_size) {
-			write_output(unwritten, *last_unwritten);
-			memcpy(unwritten, obuf, size);
-			*last_unwritten = size;
-		} else if (size == 0) {
-			/* PKCS#7: last n bytes all n, 0 < n <= block size */
-			n = (unsigned char) unwritten[block_size - 1];
-			if (n < 1 || n > block_size)
-				fatal("bad decrypt (wrong padding)");
-			for (i = block_size - n; i < block_size; i++)
-				if ((unsigned char) unwritten[i] != n)
-					fatal("bad decrypt (wrong padding)");
-			write_output(unwritten, block_size - n);
-		} else
-			BUG();
-	} else
-		write_output(obuf, size);
 }
 
 /*
@@ -327,17 +239,19 @@ void do_crypt(int argc, char *argv[])
                 { "iterations",	required_argument,	NULL, 'i' },
                 { 0, 0, 0, 0 }
         };
-        int op, fd;
+	bool encrypt;
+	struct kc_cipher *c;
+	struct kc_error e;
 	enum afalg_algo_e algo;
 	char key[MAX_KEY_LEN], iv[MAX_IV_LEN];
 	size_t key_len = 0, iv_len = 0;
-	struct afalg_key akey = { .type = AFALG_KEY_RAW };
+	struct kc_key *kkey = NULL;
 	char passbuf[MAX_PASS_LEN], *pass = passbuf, salt[SALT_LEN];
 	size_t pass_len = 0, salt_len = 0;
 	int iterations = 10000;	/* the default */
 	bool generated_salt = false;
-	char ibuf[BUF_SIZE], obuf[BUF_SIZE];
-	size_t nread, last_nread, size, last_unwritten;
+	char ibuf[BUF_SIZE], obuf[BUF_SIZE + MAX_BLOCK_SIZE];
+	size_t nread, olen;
 
 	/* Check for common options */
         if (argc < 2) {
@@ -357,7 +271,7 @@ void do_crypt(int argc, char *argv[])
 	}
 
 	/* Parse command line */
-	op = argv[0][0] == 'e' ? ALG_OP_ENCRYPT : ALG_OP_DECRYPT;
+	encrypt = argv[0][0] == 'e';
 	algo = parse_algo_cipher(argv[1]);
 	BUG_ON(algo_key_len(algo) > MAX_KEY_LEN);
 	BUG_ON(algo_iv_len(algo) > MAX_IV_LEN);
@@ -373,7 +287,7 @@ void do_crypt(int argc, char *argv[])
 		case 'K':
 		case 'k':
 		case 'S':
-			if (key_len > 0 || akey.type == AFALG_KEY_SERIAL)
+			if (key_len > 0 || kkey)
 				fatal("key already defined");
 			switch (opt) {
 			case 'K':
@@ -386,7 +300,7 @@ void do_crypt(int argc, char *argv[])
 				break;
 			case 'S':
 #ifdef ALG_SET_KEY_BY_KEY_SERIAL
-				num_key(optarg, &akey);
+				spec_key(optarg, &kkey);
 #else
 				fatal("option -S|--keyserial unsupported");
 #endif
@@ -437,7 +351,7 @@ void do_crypt(int argc, char *argv[])
         }
 	if (pass_len > 0) {
 		if (salt_len == 0) {
-			if (op == ALG_OP_ENCRYPT) {
+			if (encrypt) {
 				salt_len = generate_salt(salt);
 				if (salt_len == 0)
 					fatal("cannot generate random salt");
@@ -451,57 +365,52 @@ void do_crypt(int argc, char *argv[])
 		dbg_dump(pass, pass_len, "pass:");
 		dbg_dump(salt, salt_len, "salt:");
 		key_len = algo_key_len(algo);
-		akey.type = AFALG_KEY_RAW;
+		kc_key_free(kkey);
+		kkey = NULL;
 		iv_len = algo_iv_len(algo);
 		pbkdf2(pass, pass_len, salt, salt_len, iterations,
 			key, key_len, iv, iv_len);
 
 	} else if (salt_len > 0)
 		fatal("salt specified with no pass key!");
-	if (akey.type == AFALG_KEY_RAW) {
+	if (!kkey) {
 		if (key_len == 0)
 			fatal("no key defined!");
 		dbg_dump(key, key_len, "key:");
-		akey.raw.data = key;
-		akey.raw.len = key_len;
+		if (kc_key_raw(&kkey, key, key_len, &e))
+			fatal("%s", e.msg);
 	}
 	if (iv_len == 0)
                 fatal("no IV defined!");
 	dbg_dump(iv, iv_len, "iv:");
 
-	fd = create_cipher_socket(algo, &akey);
-	init_afalg_data(fd, op, iv, iv_len);
+	c = open_cipher(algo, kkey, encrypt, iv, iv_len);
 
 	if (generated_salt)
 		write_salt(salt, salt_len);
 
 	BUG_ON(algo_block_size(algo) > MAX_BLOCK_SIZE);
-	last_nread = 0;
-	last_unwritten = 0;
-	size = 0;
+	BUG_ON(algo_block_size(algo) != iv_len);
 	do {
-		nread = read_data(algo_block_size(algo), ibuf, op, &last_nread);
+		nread = read_data(ibuf);
 		if (nread == 0)
 			break;
 
-		if (op == ALG_OP_DECRYPT) {
-			if (nread % algo_block_size(algo))
-				fatal("bad decrypt (wrong final block length)");
-			size = nread;
-		} else
-			size = pad_data(algo_block_size(algo), ibuf, nread);
-		BUG_ON(size % algo_block_size(algo));
-		process_data(fd, ibuf, obuf, size);
-			
-		write_data(algo_block_size(algo), obuf, size, op,
-						unwritten, &last_unwritten);
+		/*
+		 * Only the last read can be short; a ciphertext whose length
+		 * is wrong is refused before any of that read is written
+		 */
+		if (!encrypt && nread % algo_block_size(algo))
+			fatal("bad decrypt (wrong final block length)");
+		if (kc_cipher_update(c, ibuf, nread, obuf, &olen, &e))
+			fatal("%s", e.msg);
+		write_output(obuf, olen);
 	} while (nread > 0);
-	if (op == ALG_OP_DECRYPT && last_unwritten == 0)
-		fatal("bad decrypt (wrong final block length)");
-	if (last_unwritten)
-		write_data(algo_block_size(algo), NULL, 0, op,
-						unwritten, &last_unwritten);
+	if (kc_cipher_final(c, obuf, &olen, &e))
+		fatal("%s", e.msg);
+	write_output(obuf, olen);
 	flush_output();
 
-	close(fd);
+	kc_cipher_free(c);
+	kc_key_free(kkey);
 }
