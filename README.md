@@ -29,7 +29,7 @@ This project provides a basic example of how to interact with the kernel's crypt
 
 To build and run this project, you need:
 
-  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf always) need **Kernel 6.2 or newer** with `KEYS` support.
+  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf seal and unseal) need **Kernel 6.2 or newer** with `KEYS` support.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
   * The keyutils library and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
@@ -262,13 +262,14 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries:
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries; and it decrypts the files of `openssl enc -pbkdf2`, from openssl's own command line:
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
 $ craf unseal -enc-key @s,user,backup < data.craf > data.tar
 $ craf seal -cipher-driver cbc-aes-ce -enc-blob key.blob < data.tar > data.craf
 $ craf unseal < data.craf > data.tar
+$ craf enc -d -in data.tar.enc -aes-256-cbc -pbkdf2 -kfile data.key > data.tar
 ```
 
 Its options, exit statuses, what it protects against, the archive format and its known bugs are in [doc/craf.md](doc/craf.md).
