@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include "afalg.h"
+#include "kcrypto.h"
 #include "misc.h"
 
 /* Exit statuses */

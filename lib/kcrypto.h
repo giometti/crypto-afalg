@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #define KC_MSG_MAX		1024
+#define KC_NAME_MAX		63	/* of an algorithm or a driver */
 #define KC_HASH_MAX		64	/* the longest digest, SHA-512's */
 #define KC_BLOCK_MAX		32	/* the longest IV the library takes */
 #define KC_OPENSSL_SALT_LEN	8
@@ -61,14 +62,35 @@ extern int kc_algo_available(const char *type, const char *name,
 			     struct kc_error *e);
 
 /*
- * Whether /proc/crypto lists driver as a driver of algo that a socket of
- * the given type takes: KC_REFUSED when it does not, KC_FAILED only when
- * /proc/crypto cannot be read. It does not ask the kernel, so a driver
+ * What /proc/crypto lists, among the types a socket of the given type
+ * takes: KC_REFUSED when it does not list it, KC_FAILED only when
+ * /proc/crypto cannot be read. These do not ask the kernel, so a driver
  * the kernel builds from a template is listed only once something has
  * used it since the boot; kc_algo_available() on its name builds it.
+ *
+ * kc_driver_check(): whether driver is a driver of algo;
+ * kc_driver_algo(): the algorithm of driver, into algo of size bytes;
+ * kc_algo_listed(): whether algo is the name of an algorithm.
  */
 extern int kc_driver_check(const char *type, const char *driver,
 			   const char *algo, struct kc_error *e);
+extern int kc_driver_algo(const char *type, const char *driver, char *algo,
+			  size_t size, struct kc_error *e);
+extern int kc_algo_listed(const char *type, const char *algo,
+			  struct kc_error *e);
+
+/*
+ * The driver the kernel takes for algo, into driver of size bytes, chosen
+ * as crypto/api.c does: the highest priority among the tested, not
+ * internal drivers /proc/crypto lists, the first one among equals. The
+ * kernel is asked first, as by kc_algo_available(), so that it lists what
+ * it builds from a template: KC_REFUSED when it has no such algorithm, or
+ * when /proc/crypto lists no driver it would take; KC_FAILED when the
+ * kernel or /proc/crypto could not be asked; KC_USAGE (ENAMETOOLONG) when
+ * the driver does not fit.
+ */
+extern int kc_driver_for_algo(const char *type, const char *algo,
+			      char *driver, size_t size, struct kc_error *e);
 
 /* A key: raw bytes, or a keyring key the kernel uses by its serial */
 struct kc_key;

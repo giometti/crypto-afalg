@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "kc-internal.h"
 #include "kc-backend.h"
@@ -27,11 +28,21 @@
 #define PROC_CRYPTO		"/proc/crypto"
 #define FIELD_MAX		128	/* CRYPTO_MAX_ALG_NAME */
 
-/* The fields of an entry of /proc/crypto that name a driver */
+/* The fields of an entry of /proc/crypto that name and choose a driver */
 struct proc_entry {
 	char name[FIELD_MAX];
 	char driver[FIELD_MAX];
 	char type[32];
+	char selftest[16];
+	char internal[16];
+	long priority;
+};
+
+/* What a scan of /proc/crypto looks for, and what it found */
+struct lookup {
+	const char *name;
+	char found[FIELD_MAX];
+	long priority;
 };
 
 /* Copies at most size - 1 bytes and terminates, as strlcpy() */
@@ -75,6 +86,12 @@ static int read_entry(FILE *f, struct proc_entry *pe)
 			copy(pe->driver, val, sizeof(pe->driver));
 		else if (strcmp(line, "type") == 0)
 			copy(pe->type, val, sizeof(pe->type));
+		else if (strcmp(line, "selftest") == 0)
+			copy(pe->selftest, val, sizeof(pe->selftest));
+		else if (strcmp(line, "internal") == 0)
+			copy(pe->internal, val, sizeof(pe->internal));
+		else if (strcmp(line, "priority") == 0)
+			pe->priority = strtol(val, NULL, 10);
 	}
 	if (ferror(f))
 		return -1;
@@ -111,6 +128,74 @@ static bool is_taken(const char *const *taken, const char *type)
 	return false;
 }
 
+/*
+ * Each entry of a type in taken goes to match() until it returns true:
+ * KC_OK when one did, KC_REFUSED when none did, which the caller says,
+ * and KC_FAILED when /proc/crypto cannot be read
+ */
+static int scan(const char *const *taken,
+		bool (*match)(const struct proc_entry *pe, struct lookup *l),
+		struct lookup *l, struct kc_error *e)
+{
+	struct proc_entry pe;
+	FILE *f;
+	int ret, err;
+
+	f = fopen(PROC_CRYPTO, "r");
+	if (!f) {
+		err = errno;
+		return kc_fail(e, KC_FAILED, err, "cannot read %s: %s",
+			       PROC_CRYPTO, strerror(err));
+	}
+	while ((ret = read_entry(f, &pe)) > 0)
+		if (is_taken(taken, pe.type) && match(&pe, l))
+			break;
+	err = errno;
+	fclose(f);		/* intentionally ignored */
+	if (ret < 0)
+		return kc_fail(e, KC_FAILED, err, "cannot read %s: %s",
+			       PROC_CRYPTO, strerror(err));
+	return ret > 0 ? KC_OK : KC_REFUSED;
+}
+
+static bool is_driver(const struct proc_entry *pe, struct lookup *l)
+{
+	if (strcmp(pe->driver, l->name) != 0)
+		return false;
+	copy(l->found, pe->name, sizeof(l->found));
+	return true;
+}
+
+static bool is_algo(const struct proc_entry *pe, struct lookup *l)
+{
+	return strcmp(pe->name, l->name) == 0;
+}
+
+/*
+ * What crypto_alg_mod_lookup() takes, the first one among equals: the
+ * scan goes on to the end
+ */
+static bool better(const struct proc_entry *pe, struct lookup *l)
+{
+	if (strcmp(pe->name, l->name) != 0 ||
+	    strcmp(pe->selftest, "passed") != 0 ||
+	    strcmp(pe->internal, "no") != 0 ||
+	    (l->found[0] != '\0' && pe->priority <= l->priority))
+		return false;
+	copy(l->found, pe->driver, sizeof(l->found));
+	l->priority = pe->priority;
+	return false;
+}
+
+static int give(char *dst, size_t size, const char *src, struct kc_error *e)
+{
+	if (strlen(src) >= size)
+		return kc_fail(e, KC_USAGE, ENAMETOOLONG, "no room for \"%s\"",
+			       src);
+	strcpy(dst, src);
+	return kc_ok(e);
+}
+
 KC_EXPORT int kc_algo_available(const char *type, const char *name,
 				struct kc_error *e)
 {
@@ -120,36 +205,76 @@ KC_EXPORT int kc_algo_available(const char *type, const char *name,
 	return KC_BACKEND->available(type, name, e);
 }
 
-KC_EXPORT int kc_driver_check(const char *type, const char *driver,
-			      const char *algo, struct kc_error *e)
+KC_EXPORT int kc_driver_algo(const char *type, const char *driver,
+			     char *algo, size_t size, struct kc_error *e)
 {
 	const char *const *taken = types_taken(type);
-	struct proc_entry pe;
-	FILE *f;
-	int ret, err;
+	struct lookup l = { .name = driver };
+	int status;
 
 	if (!taken)
 		return kc_fail(e, KC_USAGE, EINVAL,
 			       "unknown algorithm type \"%s\"", type);
-	f = fopen(PROC_CRYPTO, "r");
-	if (!f) {
-		err = errno;
-		return kc_fail(e, KC_FAILED, err, "cannot read %s: %s",
-			       PROC_CRYPTO, strerror(err));
-	}
-	while ((ret = read_entry(f, &pe)) > 0)
-		if (is_taken(taken, pe.type) &&
-		    strcmp(pe.driver, driver) == 0 &&
-		    strcmp(pe.name, algo) == 0)
-			break;
-	err = errno;
-	fclose(f);		/* intentionally ignored */
-	if (ret < 0)
-		return kc_fail(e, KC_FAILED, err, "cannot read %s: %s",
-			       PROC_CRYPTO, strerror(err));
-	if (ret == 0)
+	status = scan(taken, is_driver, &l, e);
+	if (status == KC_REFUSED)
+		return kc_fail(e, KC_REFUSED, 0, "%s lists no %s driver \"%s\"",
+			       PROC_CRYPTO, type, driver);
+	if (status)
+		return status;
+	return give(algo, size, l.found, e);
+}
+
+KC_EXPORT int kc_driver_check(const char *type, const char *driver,
+			      const char *algo, struct kc_error *e)
+{
+	char found[FIELD_MAX];
+	int status;
+
+	status = kc_driver_algo(type, driver, found, sizeof(found), e);
+	if (status == KC_REFUSED || (!status && strcmp(found, algo) != 0))
 		return kc_fail(e, KC_REFUSED, 0,
 			       "%s lists no %s driver \"%s\" of %s",
 			       PROC_CRYPTO, type, driver, algo);
-	return kc_ok(e);
+	return status;
+}
+
+KC_EXPORT int kc_algo_listed(const char *type, const char *algo,
+			     struct kc_error *e)
+{
+	const char *const *taken = types_taken(type);
+	struct lookup l = { .name = algo };
+	int status;
+
+	if (!taken)
+		return kc_fail(e, KC_USAGE, EINVAL,
+			       "unknown algorithm type \"%s\"", type);
+	status = scan(taken, is_algo, &l, e);
+	if (status == KC_REFUSED)
+		return kc_fail(e, KC_REFUSED, 0,
+			       "%s lists no %s algorithm \"%s\"",
+			       PROC_CRYPTO, type, algo);
+	return status ? status : kc_ok(e);
+}
+
+KC_EXPORT int kc_driver_for_algo(const char *type, const char *algo,
+				 char *driver, size_t size,
+				 struct kc_error *e)
+{
+	const char *const *taken = types_taken(type);
+	struct lookup l = { .name = algo };
+	int status;
+
+	if (!taken)
+		return kc_fail(e, KC_USAGE, EINVAL,
+			       "unknown algorithm type \"%s\"", type);
+	status = KC_BACKEND->available(type, algo, e);
+	if (status)
+		return status;
+	if (scan(taken, better, &l, e) == KC_FAILED)
+		return KC_FAILED;
+	if (l.found[0] == '\0')
+		return kc_fail(e, KC_REFUSED, 0,
+			       "no driver of %s is listed in %s", algo,
+			       PROC_CRYPTO);
+	return give(driver, size, l.found, e);
 }

@@ -24,9 +24,6 @@
 #include "craf.h"
 #include "craf-keys.h"
 
-/* What the name of struct sockaddr_alg holds, its terminator aside */
-#define DRIVER_MAX	(sizeof(((struct sockaddr_alg *) 0)->salg_name) - 1)
-
 int debug_level;
 
 static void usage(FILE *f)
@@ -68,10 +65,10 @@ static int check_driver_name(const char *name)
 {
 	size_t i, len = strlen(name);
 
-	if (len == 0 || len > DRIVER_MAX)
+	if (len == 0 || len > KC_NAME_MAX)
 		return craf_err(CRAF_USAGE,
-				"-cipher-driver: the length must be 1 to %zu",
-				DRIVER_MAX);
+				"-cipher-driver: the length must be 1 to %d",
+				KC_NAME_MAX);
 	for (i = 0; i < len; i++)
 		if (name[i] < 0x21 || name[i] > 0x7e)
 			return craf_err(CRAF_USAGE,

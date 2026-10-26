@@ -48,4 +48,45 @@ expect 2 'kc-check: status=2 errnum=22: unknown algorithm type "cipher"' \
 expect 3 'kc-check: status=3 errnum=24: cannot read /proc/crypto: Too many open files' \
 	exhaust driver skcipher "$cbc" 'cbc(aes)'
 
+# The algorithm of a driver, and whether a name is one of an algorithm
+expect 0 - driver-algo skcipher "$cbc"
+[ "$(cat $NAME.got)" = 'cbc(aes)' ] || fail=y
+expect 0 - driver-algo hash "$sha"
+[ "$(cat $NAME.got)" = sha256 ] || fail=y
+expect 1 'kc-check: status=1 errnum=0: /proc/crypto lists no skcipher driver "cbc(aes)"' \
+	driver-algo skcipher 'cbc(aes)'
+expect 1 "kc-check: status=1 errnum=0: /proc/crypto lists no hash driver \"$cbc\"" \
+	driver-algo hash "$cbc"
+expect 2 'kc-check: status=2 errnum=22: unknown algorithm type "cipher"' \
+	driver-algo cipher "$cbc"
+expect 3 'kc-check: status=3 errnum=24: cannot read /proc/crypto: Too many open files' \
+	exhaust driver-algo skcipher "$cbc"
+expect 0 - algo-listed skcipher 'cbc(aes)'
+expect 1 "kc-check: status=1 errnum=0: /proc/crypto lists no skcipher algorithm \"$cbc\"" \
+	algo-listed skcipher "$cbc"
+expect 1 'kc-check: status=1 errnum=0: /proc/crypto lists no hash algorithm "cbc(aes)"' \
+	algo-listed hash 'cbc(aes)'
+expect 2 'kc-check: status=2 errnum=22: unknown algorithm type "cipher"' \
+	algo-listed cipher 'cbc(aes)'
+expect 3 'kc-check: status=3 errnum=24: cannot read /proc/crypto: Too many open files' \
+	exhaust algo-listed skcipher 'cbc(aes)'
+
+# The driver the kernel takes, by the rule driver_of restates; the kernel
+# is asked first, so a name it does not have is its "no"
+expect 0 - driver-for-algo skcipher 'cbc(aes)'
+[ "$(cat $NAME.got)" = "$(driver_of 'cbc(aes)' skcipher lskcipher)" ] ||
+	fail=y
+expect 0 - driver-for-algo hash sha256
+[ "$(cat $NAME.got)" = "$sha" ] || fail=y
+expect 1 'kc-check: status=1 errnum=2: bind(): No such file or directory' \
+	driver-for-algo skcipher 'nosuch(aes)'
+room=$(driver_of 'cbc(aes)' skcipher lskcipher | wc -c)
+expect 0 - driver-for-algo skcipher 'cbc(aes)' $room
+expect 2 "kc-check: status=2 errnum=36: no room for \"$(cat $NAME.got)\"" \
+	driver-for-algo skcipher 'cbc(aes)' $((room - 1))
+expect 2 'kc-check: status=2 errnum=22: unknown algorithm type "cipher"' \
+	driver-for-algo cipher 'cbc(aes)'
+expect 3 'kc-check: status=3 errnum=24: socket(AF_ALG): Too many open files' \
+	exhaust driver-for-algo skcipher 'cbc(aes)'
+
 . test-end.inc

@@ -81,9 +81,9 @@ $(KC): $(KC_OBJS)
 $(TARGET): $(OBJS) $(KC)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(KC) $(LFLAGS) $(LDFLAGS) $(LDLIBS)
 
-$(CRAF): $(CRAF_OBJS) $(LIB)
-	$(CC) $(CFLAGS) -o $(CRAF) $(CRAF_OBJS) $(LIB) $(LFLAGS) $(LDFLAGS) \
-		$(LDLIBS) $(CRAF_LDLIBS)
+$(CRAF): $(CRAF_OBJS) $(LIB) $(KC)
+	$(CC) $(CFLAGS) -o $(CRAF) $(CRAF_OBJS) $(LIB) $(KC) $(LFLAGS) \
+		$(LDFLAGS) $(LDLIBS) $(CRAF_LDLIBS)
 
 # The program the tests drive the library with, not installed
 $(KC_CHECK): $(KC_CHECK_OBJS) $(KC)

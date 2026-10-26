@@ -38,6 +38,11 @@ struct kc_op {
 	int fd;
 };
 
+/* A name the library promises to take is one bind() takes */
+_Static_assert(KC_NAME_MAX + 1 ==
+	       sizeof(((struct sockaddr_alg *) 0)->salg_name),
+	       "KC_NAME_MAX is not what struct sockaddr_alg holds");
+
 /* Both fields keep their terminating NUL; too long is a wrong argument */
 static int fill_sockaddr(struct sockaddr_alg *sa, const char *type,
 			 const char *name, struct kc_error *e)

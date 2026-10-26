@@ -37,6 +37,9 @@ static void __attribute__((noreturn)) usage(void)
 		"usage: kc-check [exhaust] <command> <args...>\n"
 		"  available <type> <name>\n"
 		"  driver <type> <driver> <algo>\n"
+		"  driver-algo <type> <driver>: prints its algorithm\n"
+		"  algo-listed <type> <algo>\n"
+		"  driver-for-algo <type> <algo> [<room>]: prints the driver\n"
 		"  key-spec <spec>: prints the serial\n"
 		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
@@ -173,6 +176,32 @@ static void *xmalloc(size_t size)
 		exit(EXIT_USAGE);
 	}
 	return p;
+}
+
+static int driver_algo(const char *type, const char *driver,
+		       struct kc_error *e)
+{
+	char algo[128];
+	int status;
+
+	status = kc_driver_algo(type, driver, algo, sizeof(algo), e);
+	if (!status)
+		printf("%s\n", algo);
+	return status;
+}
+
+/* Exactly the room given, for AddressSanitizer */
+static int driver_for_algo(const char *type, const char *algo, size_t room,
+			   struct kc_error *e)
+{
+	char *driver = xmalloc(room);
+	int status;
+
+	status = kc_driver_for_algo(type, algo, driver, room, e);
+	if (!status)
+		printf("%s\n", driver);
+	free(driver);
+	return status;
 }
 
 static int key_spec(const char *spec, struct kc_error *e)
@@ -403,6 +432,15 @@ int main(int argc, char *argv[])
 		status = kc_algo_available(argv[2], argv[3], &e);
 	else if (strcmp(argv[1], "driver") == 0 && argc == 5)
 		status = kc_driver_check(argv[2], argv[3], argv[4], &e);
+	else if (strcmp(argv[1], "driver-algo") == 0 && argc == 4)
+		status = driver_algo(argv[2], argv[3], &e);
+	else if (strcmp(argv[1], "algo-listed") == 0 && argc == 4)
+		status = kc_algo_listed(argv[2], argv[3], &e);
+	else if (strcmp(argv[1], "driver-for-algo") == 0 &&
+		 (argc == 4 || argc == 5))
+		status = driver_for_algo(argv[2], argv[3], argc == 5 ?
+					 strtoul(argv[4], NULL, 10) :
+					 KC_NAME_MAX + 1, &e);
 	else if (strcmp(argv[1], "key-spec") == 0 && argc == 3)
 		status = key_spec(argv[2], &e);
 	else if (strcmp(argv[1], "key-serial") == 0 && argc == 2)

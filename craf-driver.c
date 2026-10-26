@@ -1,5 +1,5 @@
 /*
- * craf-driver.c - craf cipher drivers, chosen as the kernel does
+ * craf-driver.c - craf cipher drivers: what craf says of them
  *
  * Copyright (C) 2026 Rodolfo Giometti <giometti@enneenne.com>
  *
@@ -17,107 +17,22 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <stdlib.h>
 #include <string.h>
 #include "craf.h"
 
 #define PROC_CRYPTO		"/proc/crypto"
 
-/* The fields of an entry of /proc/crypto that choose a driver */
-struct proc_entry {
-	char name[CRAF_STR_MAX + 1];
-	char driver[CRAF_STR_MAX + 1];
-	char type[32];
-	char selftest[16];
-	char internal[16];
-	long priority;
-};
-
-/* Copies at most size - 1 bytes and terminates, as strlcpy() */
-static void copy(char *dst, const char *src, size_t size)
-{
-	size_t len = strnlen(src, size - 1);
-
-	memcpy(dst, src, len);
-	dst[len] = '\0';
-}
-
-/* The next entry: 1, or 0 at the end of the file, -1 on a read error */
-static int read_entry(FILE *f, struct proc_entry *e)
-{
-	char line[512], *sep, *val;
-	bool any = false;
-	size_t len;
-
-	memset(e, 0, sizeof(*e));
-	while (fgets(line, sizeof(line), f)) {
-		len = strlen(line);
-		if (len > 0 && line[len - 1] == '\n')
-			line[--len] = '\0';
-		if (len == 0) {
-			if (any)
-				return 1;
-			continue;
-		}
-		any = true;
-		sep = strchr(line, ':');
-		if (!sep)
-			continue;
-		for (val = sep + 1; *val == ' '; val++)
-			;
-		while (sep > line && sep[-1] == ' ')
-			sep--;
-		*sep = '\0';
-		if (strcmp(line, "name") == 0)
-			copy(e->name, val, sizeof(e->name));
-		else if (strcmp(line, "driver") == 0)
-			copy(e->driver, val, sizeof(e->driver));
-		else if (strcmp(line, "type") == 0)
-			copy(e->type, val, sizeof(e->type));
-		else if (strcmp(line, "selftest") == 0)
-			copy(e->selftest, val, sizeof(e->selftest));
-		else if (strcmp(line, "internal") == 0)
-			copy(e->internal, val, sizeof(e->internal));
-		else if (strcmp(line, "priority") == 0)
-			e->priority = strtol(val, NULL, 10);
-	}
-	if (ferror(f))
-		return -1;
-	return any;
-}
-
 /*
- * The kernel gives an AF_ALG skcipher socket an lskcipher too: the
- * type mask of crypto_skcipher_type does not tell them apart
+ * A name the kernel refused to bind is "not available", in craf's words;
+ * any other failure is told as the library tells it
  */
-static bool is_skcipher(const struct proc_entry *e)
+static int driver_err(const char *what, const char *name,
+		      const struct kc_error *e)
 {
-	return strcmp(e->type, "skcipher") == 0 ||
-	       strcmp(e->type, "lskcipher") == 0;
-}
-
-/* What crypto_alg_mod_lookup() takes: tested, and not internal */
-static bool usable(const struct proc_entry *e)
-{
-	return is_skcipher(e) && strcmp(e->selftest, "passed") == 0 &&
-	       strcmp(e->internal, "no") == 0;
-}
-
-/* A bind by name that leaves nothing open: the name is usable */
-static int bind_check(const char *what, const char *name)
-{
-	int s;
-
-	s = afalg_socket();
-	if (s < 0)
-		return craf_err(CRAF_FAILED, "socket(AF_ALG): %m");
-	if (afalg_bind(s, "skcipher", name) < 0) {
-		err("%s \"%s\" not available: %m", what, name);
-		close(s);
-		return CRAF_FAILED;
-	}
-	close(s);
-	return CRAF_OK;
+	if (e->status == KC_REFUSED && e->errnum)
+		return craf_err(CRAF_FAILED, "%s \"%s\" not available: %s",
+				what, name, strerror(e->errnum));
+	return craf_err(CRAF_FAILED, "%s", e->msg);
 }
 
 /*
@@ -131,35 +46,28 @@ static int bind_check(const char *what, const char *name)
 int craf_driver_listed(const char *what, const char *driver,
 		       const char *algo, int mismatch, bool user)
 {
-	struct proc_entry e;
-	bool is_algo = false;
-	FILE *f;
-	int ret;
+	char found[CRAF_STR_MAX + 1];
+	struct kc_error e;
+	int status;
 
-	f = fopen(PROC_CRYPTO, "r");
-	if (!f)
-		return craf_err(CRAF_FAILED, "cannot read %s: %m", PROC_CRYPTO);
-	while ((ret = read_entry(f, &e)) > 0) {
-		if (!is_skcipher(&e))
-			continue;
-		if (strcmp(e.driver, driver) == 0)
-			break;
-		if (strcmp(e.name, driver) == 0)
-			is_algo = true;
+	status = kc_driver_algo("skcipher", driver, found, sizeof(found), &e);
+	if (status == KC_REFUSED) {
+		if (user)
+			status = kc_algo_listed("skcipher", driver, &e);
+		if (status == KC_OK)
+			return craf_err(mismatch,
+					"%s \"%s\" names an algorithm, not a driver",
+					what, driver);
+		if (status == KC_REFUSED)
+			return craf_err(CRAF_FAILED,
+					"%s \"%s\" is not listed in %s", what,
+					driver, PROC_CRYPTO);
 	}
-	fclose(f);
-	if (ret < 0)
-		return craf_err(CRAF_FAILED, "cannot read %s: %m", PROC_CRYPTO);
-	if (ret == 0 && is_algo && user)
-		return craf_err(mismatch,
-				"%s \"%s\" names an algorithm, not a driver",
-				what, driver);
-	if (ret == 0)
-		return craf_err(CRAF_FAILED, "%s \"%s\" is not listed in %s",
-				what, driver, PROC_CRYPTO);
-	if (strcmp(e.name, algo) != 0)
+	if (status)
+		return craf_err(CRAF_FAILED, "%s", e.msg);
+	if (strcmp(found, algo) != 0)
 		return craf_err(mismatch, "%s \"%s\" is a driver of %s, not %s",
-				what, driver, e.name, algo);
+				what, driver, found, algo);
 	return CRAF_OK;
 }
 
@@ -170,48 +78,19 @@ int craf_driver_listed(const char *what, const char *driver,
 int craf_driver_check(const char *what, const char *driver, const char *algo,
 		      int mismatch)
 {
-	int status;
+	struct kc_error e;
 
-	status = bind_check(what, driver);
-	if (status)
-		return status;
+	if (kc_algo_available("skcipher", driver, &e))
+		return driver_err(what, driver, &e);
 	return craf_driver_listed(what, driver, algo, mismatch, true);
 }
 
-/*
- * The driver the kernel takes for an algorithm (crypto/api.c,
- * __crypto_alg_lookup()): the highest priority, the first one listed
- * among equals. A bind by the algorithm's name comes first, so that the
- * kernel instantiates the templates it needs and lists them.
- */
+/* The driver the kernel takes for <algo>, into <driver> */
 int craf_driver_for_algo(const char *algo, char *driver)
 {
-	struct proc_entry e;
-	long best = 0;
-	bool found = false;
-	FILE *f;
-	int ret, status;
+	struct kc_error e;
 
-	status = bind_check("cipher_algo", algo);
-	if (status)
-		return status;
-	f = fopen(PROC_CRYPTO, "r");
-	if (!f)
-		return craf_err(CRAF_FAILED, "cannot read %s: %m", PROC_CRYPTO);
-	while ((ret = read_entry(f, &e)) > 0) {
-		if (!usable(&e) || strcmp(e.name, algo) != 0)
-			continue;
-		if (found && e.priority <= best)
-			continue;
-		strcpy(driver, e.driver);
-		best = e.priority;
-		found = true;
-	}
-	fclose(f);
-	if (ret < 0)
-		return craf_err(CRAF_FAILED, "cannot read %s: %m", PROC_CRYPTO);
-	if (!found)
-		return craf_err(CRAF_FAILED, "no driver of %s is listed in %s",
-				algo, PROC_CRYPTO);
+	if (kc_driver_for_algo("skcipher", algo, driver, CRAF_STR_MAX + 1, &e))
+		return driver_err("cipher_algo", algo, &e);
 	return CRAF_OK;
 }
