@@ -17,6 +17,7 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
 #include <string.h>
 #include "kc-internal.h"
 
@@ -41,4 +42,31 @@ KC_EXPORT void kc_openssl_header_make(uint8_t buf[KC_OPENSSL_HEADER_LEN],
 {
 	memcpy(buf, MAGIC, MAGIC_LEN);
 	memcpy(buf + MAGIC_LEN, salt, KC_OPENSSL_SALT_LEN);
+}
+
+KC_EXPORT int kc_openssl_derive(const char *hmac, const void *pass,
+				size_t pass_len,
+				const uint8_t salt[KC_OPENSSL_SALT_LEN],
+				unsigned int iter, size_t key_len,
+				struct kc_key **k, void *iv, size_t iv_len,
+				struct kc_error *e)
+{
+	unsigned char out[KC_OPENSSL_KEY_MAX + KC_BLOCK_MAX];
+	int status;
+
+	*k = NULL;
+	if (key_len == 0 || key_len > KC_OPENSSL_KEY_MAX)
+		return kc_fail(e, KC_USAGE, EINVAL, "invalid key length %zu",
+			       key_len);
+	if (iv_len > KC_BLOCK_MAX)
+		return kc_fail(e, KC_USAGE, EINVAL, "invalid IV length %zu",
+			       iv_len);
+	status = kc_pbkdf2(hmac, pass, pass_len, salt, KC_OPENSSL_SALT_LEN,
+			   iter, out, key_len + iv_len, e);
+	if (!status)
+		status = kc_key_raw(k, out, key_len, e);
+	if (!status && iv_len > 0)
+		memcpy(iv, out + key_len, iv_len);
+	explicit_bzero(out, sizeof(out));
+	return status;
 }

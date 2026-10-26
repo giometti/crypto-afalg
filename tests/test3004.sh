@@ -37,6 +37,37 @@ kc-check pbkdf2 'hmac(sha256)' $(tohex $pass) $salt 10000 48 \
 	> $NAME.out || fail=y
 echo $key$iv | tr A-F a-f | cmp - $NAME.out || fail=y
 
+# Key and IV of each length, as openssl derives them: the IV printed, the
+# key used on a file of openssl, where the kernel has the cipher
+for c in aes-128-cbc:16:16:'cbc(aes)' aes-192-cbc:24:16:'cbc(aes)' \
+	aes-256-cbc:32:16:'cbc(aes)' des-ede3-cbc:24:8:'cbc(des3_ede)'; do
+	IFS=: read name klen ilen kname <<< "$c"
+	openssl enc -$name -pbkdf2 -iter 1000 -pass pass:$pass -S $salt -P \
+		> $NAME.p
+	iv=$(sed -n 's/^iv *=//p' $NAME.p | tr A-F a-f)
+	kc-check derive 'hmac(sha256)' $(tohex $pass) $salt 1000 $klen $ilen \
+		> $NAME.out || fail=y
+	echo $iv | cmp - $NAME.out || fail=y
+	kc-check available skcipher "$kname" 2> /dev/null || continue
+	head -c 1000 /dev/urandom > $NAME.in
+	openssl enc -$name -pbkdf2 -iter 1000 -pass pass:$pass < $NAME.in \
+		> $NAME.enc
+	kc-check openssl-dec "$kname" $(tohex $pass) 1000 $klen $ilen \
+		< $NAME.enc > $NAME.out || fail=y
+	cmp $NAME.in $NAME.out || fail=y
+done
+expect 2 'kc-check: status=2 errnum=22: invalid key length 0' \
+	derive 'hmac(sha256)' 00 $salt 1 0 16
+expect 2 'kc-check: status=2 errnum=22: invalid key length 65' \
+	derive 'hmac(sha256)' 00 $salt 1 65 16
+expect 2 'kc-check: status=2 errnum=22: invalid IV length 33' \
+	derive 'hmac(sha256)' 00 $salt 1 32 33
+expect 2 'kc-check: status=2 errnum=22: PBKDF2 needs one iteration at least' \
+	derive 'hmac(sha256)' 00 $salt 0 32 16
+expect 1 'kc-check: status=1 errnum=2: bind(): No such file or directory' \
+	derive 'hmac(nosuch)' 00 $salt 1 32 16
+expect 0 - derive 'hmac(sha256)' 00 $salt 1 32 0
+
 # The header: read from openssl's output, and as openssl writes it
 seq 1 100 | openssl enc -aes-256-cbc -pbkdf2 -pass pass:$pass > $NAME.enc
 tail -c +9 $NAME.enc | head -c 8 | od -An -tx1 -v | tr -d ' \n' > $NAME.ref

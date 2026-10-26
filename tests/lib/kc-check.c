@@ -61,6 +61,10 @@ static void __attribute__((noreturn)) usage(void)
 		"    blob, the first one still loaded\n"
 		"  pbkdf2 <hmac> <pass> <salt> <iter> <len>: in hex\n"
 		"  header: the salt of the openssl enc header on stdin\n"
+		"  derive <hmac> <pass> <salt> <iter> <key-len> <iv-len>:\n"
+		"    the IV of openssl enc -pbkdf2, in hex\n"
+		"  openssl-dec <name> <pass> <iter> <key-len> <iv-len>:\n"
+		"    the file of openssl enc -pbkdf2 on stdin, decrypted\n"
 		"  header-make <salt>: the header on stdout\n"
 		"exhaust: no file descriptor left before the command\n"
 		"exit status: the kc_status, %d for a wrong command line\n",
@@ -430,6 +434,70 @@ static int pbkdf2(const char *hmac, const char *pass_hex,
 	return status;
 }
 
+static int derive(const char *hmac, const char *pass_hex, const char *salt_hex,
+		  const char *iter, const char *key_len, const char *iv_len,
+		  struct kc_error *e)
+{
+	unsigned char pass[1024], salt[KC_OPENSSL_SALT_LEN], iv[64];
+	size_t pass_len, ivl = strtoul(iv_len, NULL, 10);
+	struct kc_key *k;
+	int status;
+
+	pass_len = parse_hex(pass_hex, pass, sizeof(pass));
+	if (parse_hex(salt_hex, salt, sizeof(salt)) != sizeof(salt) ||
+	    ivl > sizeof(iv))
+		usage();
+	status = kc_openssl_derive(hmac, pass, pass_len, salt,
+				   strtoul(iter, NULL, 10),
+				   strtoul(key_len, NULL, 10), &k, iv, ivl, e);
+	if (!status)
+		print_hex(iv, ivl);
+	kc_key_free(k);
+	return status;
+}
+
+/* As craf enc -d decrypts, with the HMAC of openssl's defaults */
+static int openssl_dec(const char *name, const char *pass_hex,
+		       const char *iter, const char *key_len,
+		       const char *iv_len, struct kc_error *e)
+{
+	uint8_t hdr[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
+	unsigned char pass[1024], iv[64], buf[PIECE_MAX], *out;
+	size_t pass_len, ivl = strtoul(iv_len, NULL, 10), n, len, i = 0;
+	struct kc_cipher *c = NULL;
+	struct kc_key *k = NULL;
+	int status;
+
+	pass_len = parse_hex(pass_hex, pass, sizeof(pass));
+	if (ivl > sizeof(iv))
+		usage();
+	status = kc_openssl_header(hdr, fread(hdr, 1, sizeof(hdr), stdin),
+				   salt, e);
+	if (!status)
+		status = kc_openssl_derive("hmac(sha256)", pass, pass_len,
+					   salt, strtoul(iter, NULL, 10),
+					   strtoul(key_len, NULL, 10), &k, iv,
+					   ivl, e);
+	if (!status)
+		status = kc_cipher_open(&c, name, k, 0, iv, ivl, e);
+	while (!status && (n = read_piece(buf, &i)) > 0) {
+		out = xmalloc(n + ivl);
+		status = kc_cipher_update(c, buf, n, out, &len, e);
+		if (!status)
+			put(out, len);
+		free(out);
+	}
+	if (!status) {
+		out = xmalloc(ivl);
+		status = kc_cipher_final(c, out, &len, e);
+		put(out, len);
+		free(out);
+	}
+	kc_cipher_free(c);
+	kc_key_free(k);
+	return status;
+}
+
 static int header(struct kc_error *e)
 {
 	uint8_t buf[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
@@ -539,6 +607,12 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "pbkdf2") == 0 && argc == 7)
 		status = pbkdf2(argv[2], argv[3], argv[4], argv[5], argv[6],
 				&e);
+	else if (strcmp(argv[1], "derive") == 0 && argc == 8)
+		status = derive(argv[2], argv[3], argv[4], argv[5], argv[6],
+				argv[7], &e);
+	else if (strcmp(argv[1], "openssl-dec") == 0 && argc == 7)
+		status = openssl_dec(argv[2], argv[3], argv[4], argv[5],
+				     argv[6], &e);
 	else if (strcmp(argv[1], "header") == 0 && argc == 2)
 		status = header(&e);
 	else if (strcmp(argv[1], "header-make") == 0 && argc == 3) {

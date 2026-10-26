@@ -30,6 +30,7 @@
 #define KC_BLOCK_MAX		32	/* the longest IV the library takes */
 #define KC_OPENSSL_SALT_LEN	8
 #define KC_OPENSSL_HEADER_LEN	16	/* "Salted__" and the salt */
+#define KC_OPENSSL_KEY_MAX	64	/* no key of openssl enc is longer */
 
 /*
  * Every function that can fail returns one of these and, when its last
@@ -230,5 +231,21 @@ extern int kc_openssl_header(const void *buf, size_t len,
 			     struct kc_error *e);
 extern void kc_openssl_header_make(uint8_t buf[KC_OPENSSL_HEADER_LEN],
 				   const uint8_t salt[KC_OPENSSL_SALT_LEN]);
+
+/*
+ * The key and the IV openssl enc -pbkdf2 derives from a passphrase and the
+ * salt of its header: PBKDF2 over hmac (as "hmac(sha256)", its default)
+ * with iter iterations, key_len bytes of key first, then iv_len of IV.
+ * key_len is 1 to KC_OPENSSL_KEY_MAX, iv_len at most KC_BLOCK_MAX, and 0
+ * for a mode without an IV, iter at least 1, else KC_USAGE (EINVAL);
+ * KC_REFUSED when the kernel has no such HMAC. The bytes it derives are
+ * cleared once the key is made; *k is NULL after a failure.
+ */
+extern int kc_openssl_derive(const char *hmac, const void *pass,
+			     size_t pass_len,
+			     const uint8_t salt[KC_OPENSSL_SALT_LEN],
+			     unsigned int iter, size_t key_len,
+			     struct kc_key **k, void *iv, size_t iv_len,
+			     struct kc_error *e);
 
 #endif /* KCRYPTO_H */
