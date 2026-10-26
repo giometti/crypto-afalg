@@ -92,6 +92,21 @@ extern int kc_algo_listed(const char *type, const char *algo,
 extern int kc_driver_for_algo(const char *type, const char *algo,
 			      char *driver, size_t size, struct kc_error *e);
 
+/*
+ * The sizes of an skcipher, by the name of an algorithm or of a driver:
+ * its block, its IV and its shortest and longest key, in bytes, as
+ * /proc/crypto lists them. The kernel is asked first, as by
+ * kc_algo_available(), so that it lists what it builds from a template:
+ * KC_REFUSED when it has no such cipher, or /proc/crypto does not list it;
+ * KC_FAILED when the kernel or /proc/crypto could not be asked, or it
+ * lists the cipher without the four sizes; KC_USAGE (ENAMETOOLONG) for a
+ * name longer than KC_NAME_MAX. The sizes alone do not tell modes apart:
+ * xts(aes) and cts(cbc(aes)) have the block and the IV of cbc(aes).
+ */
+extern int kc_cipher_sizes(const char *name, size_t *block, size_t *iv_len,
+			   size_t *key_min, size_t *key_max,
+			   struct kc_error *e);
+
 /* A key: raw bytes, or a keyring key the kernel uses by its serial */
 struct kc_key;
 

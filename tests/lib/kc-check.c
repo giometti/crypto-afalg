@@ -41,6 +41,7 @@ static void __attribute__((noreturn)) usage(void)
 		"  driver-algo <type> <driver>: prints its algorithm\n"
 		"  algo-listed <type> <algo>\n"
 		"  driver-for-algo <type> <algo> [<room>]: prints the driver\n"
+		"  cipher-sizes <name>: prints block, IV and key sizes\n"
 		"  key-spec <spec>: prints the serial\n"
 		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
@@ -211,6 +212,17 @@ static int driver_for_algo(const char *type, const char *algo, size_t room,
 	if (!status)
 		printf("%s\n", driver);
 	free(driver);
+	return status;
+}
+
+static int cipher_sizes(const char *name, struct kc_error *e)
+{
+	size_t block, iv_len, key_min, key_max;
+	int status;
+
+	status = kc_cipher_sizes(name, &block, &iv_len, &key_min, &key_max, e);
+	if (!status)
+		printf("%zu %zu %zu %zu\n", block, iv_len, key_min, key_max);
 	return status;
 }
 
@@ -509,6 +521,8 @@ int main(int argc, char *argv[])
 		status = driver_for_algo(argv[2], argv[3], argc == 5 ?
 					 strtoul(argv[4], NULL, 10) :
 					 KC_NAME_MAX + 1, &e);
+	else if (strcmp(argv[1], "cipher-sizes") == 0 && argc == 3)
+		status = cipher_sizes(argv[2], &e);
 	else if (strcmp(argv[1], "key-spec") == 0 && argc == 3)
 		status = key_spec(argv[2], &e);
 	else if (strcmp(argv[1], "key-serial") == 0 && argc == 2)

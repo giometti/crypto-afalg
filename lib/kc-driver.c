@@ -28,6 +28,13 @@
 #define PROC_CRYPTO		"/proc/crypto"
 #define FIELD_MAX		128	/* CRYPTO_MAX_ALG_NAME */
 
+/* The sizes an entry lists, as bits of proc_entry.sizes */
+#define SZ_BLOCK		0x1
+#define SZ_IV			0x2
+#define SZ_KEY_MIN		0x4
+#define SZ_KEY_MAX		0x8
+#define SZ_ALL			0xf
+
 /* The fields of an entry of /proc/crypto that name and choose a driver */
 struct proc_entry {
 	char name[FIELD_MAX];
@@ -36,6 +43,11 @@ struct proc_entry {
 	char selftest[16];
 	char internal[16];
 	long priority;
+	size_t block;
+	size_t iv_len;
+	size_t key_min;
+	size_t key_max;
+	unsigned int sizes;		/* SZ_* of those listed */
 };
 
 /* What a scan of /proc/crypto looks for, and what it found */
@@ -43,6 +55,7 @@ struct lookup {
 	const char *name;
 	char found[FIELD_MAX];
 	long priority;
+	struct proc_entry entry;	/* the one that matched */
 };
 
 /* Copies at most size - 1 bytes and terminates, as strlcpy() */
@@ -52,6 +65,14 @@ static void copy(char *dst, const char *src, size_t size)
 
 	memcpy(dst, src, len);
 	dst[len] = '\0';
+}
+
+/* A size of an entry, stored; its bit back, to tell it was listed */
+static unsigned int size_field(const char *val, size_t *size,
+			       unsigned int bit)
+{
+	*size = strtoul(val, NULL, 10);
+	return bit;
 }
 
 /* The next entry: 1, or 0 at the end of the file, -1 on a read error */
@@ -92,6 +113,14 @@ static int read_entry(FILE *f, struct proc_entry *pe)
 			copy(pe->internal, val, sizeof(pe->internal));
 		else if (strcmp(line, "priority") == 0)
 			pe->priority = strtol(val, NULL, 10);
+		else if (strcmp(line, "blocksize") == 0)
+			pe->sizes |= size_field(val, &pe->block, SZ_BLOCK);
+		else if (strcmp(line, "ivsize") == 0)
+			pe->sizes |= size_field(val, &pe->iv_len, SZ_IV);
+		else if (strcmp(line, "min keysize") == 0)
+			pe->sizes |= size_field(val, &pe->key_min, SZ_KEY_MIN);
+		else if (strcmp(line, "max keysize") == 0)
+			pe->sizes |= size_field(val, &pe->key_max, SZ_KEY_MAX);
 	}
 	if (ferror(f))
 		return -1;
@@ -187,6 +216,15 @@ static bool better(const struct proc_entry *pe, struct lookup *l)
 	return false;
 }
 
+/* The sizes are the algorithm's, the same for every driver of it */
+static bool sizes_of(const struct proc_entry *pe, struct lookup *l)
+{
+	if (strcmp(pe->name, l->name) != 0 && strcmp(pe->driver, l->name) != 0)
+		return false;
+	l->entry = *pe;
+	return true;
+}
+
 static int give(char *dst, size_t size, const char *src, struct kc_error *e)
 {
 	if (strlen(src) >= size)
@@ -277,4 +315,32 @@ KC_EXPORT int kc_driver_for_algo(const char *type, const char *algo,
 			       "no driver of %s is listed in %s", algo,
 			       PROC_CRYPTO);
 	return give(driver, size, l.found, e);
+}
+
+KC_EXPORT int kc_cipher_sizes(const char *name, size_t *block,
+			      size_t *iv_len, size_t *key_min, size_t *key_max,
+			      struct kc_error *e)
+{
+	struct lookup l = { .name = name };
+	int status;
+
+	status = KC_BACKEND->available("skcipher", name, e);
+	if (status)
+		return status;
+	status = scan(types_taken("skcipher"), sizes_of, &l, e);
+	if (status == KC_REFUSED)
+		return kc_fail(e, KC_REFUSED, 0, "%s lists no skcipher \"%s\"",
+			       PROC_CRYPTO, name);
+	if (status)
+		return status;
+	/* An IV of 0 is a mode without one: a missing size is no answer */
+	if (l.entry.sizes != SZ_ALL)
+		return kc_fail(e, KC_FAILED, 0,
+			       "%s lists \"%s\" without its sizes", PROC_CRYPTO,
+			       name);
+	*block = l.entry.block;
+	*iv_len = l.entry.iv_len;
+	*key_min = l.entry.key_min;
+	*key_max = l.entry.key_max;
+	return kc_ok(e);
 }

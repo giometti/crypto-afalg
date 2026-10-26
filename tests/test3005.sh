@@ -36,7 +36,11 @@ if ! unshare -rm sh -c "mount --bind $PWD/$NAME.crypto /proc/crypto" \
 fi
 
 # The highest priority among the tested, not internal drivers of a type
-# the socket takes, the first among equals; and the kernels before 5.5
+# the socket takes, the first among equals; and the kernels before 5.5.
+# The sizes of a cipher the kernel has and the file does not list: none;
+# of one the file lists without them, as these entries: no answer
+ctr=n
+kc-check available skcipher 'ctr(aes)' 2> /dev/null && ctr=y
 cat > $NAME.ns << EOS
 mount --bind $PWD/$NAME.crypto /proc/crypto || exit 1
 kc-check driver-for-algo skcipher 'cbc(aes)' > $NAME.choice || exit 2
@@ -45,6 +49,18 @@ kc-check driver hash hashed 'cbc(aes)' || exit 4
 rc=0
 kc-check driver skcipher hashed 'cbc(aes)' 2> /dev/null || rc=\$?
 [ \$rc -eq 1 ] || exit 5
+if [ $ctr = y ]; then
+	rc=0
+	kc-check cipher-sizes 'ctr(aes)' 2> $NAME.sizes || rc=\$?
+	[ \$rc -eq 1 ] || exit 6
+	grep -qxF 'kc-check: status=1 errnum=0: /proc/crypto lists no skcipher "ctr(aes)"' \
+		$NAME.sizes || exit 7
+fi
+rc=0
+kc-check cipher-sizes 'cbc(aes)' 2> $NAME.sizes || rc=\$?
+[ \$rc -eq 3 ] || exit 8
+grep -qxF 'kc-check: status=3 errnum=0: /proc/crypto lists "cbc(aes)" without its sizes' \
+	$NAME.sizes || exit 9
 exit 0
 EOS
 rc=0

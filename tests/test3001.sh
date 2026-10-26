@@ -89,4 +89,21 @@ expect 2 'kc-check: status=2 errnum=22: unknown algorithm type "cipher"' \
 expect 3 'kc-check: status=3 errnum=24: socket(AF_ALG): Too many open files' \
 	exhaust driver-for-algo skcipher 'cbc(aes)'
 
+# The sizes of a cipher, by its algorithm or a driver; ecb has no IV and
+# ctr is a stream, where the kernel has them
+expect 0 - cipher-sizes 'cbc(aes)'
+[ "$(cat $NAME.got)" = '16 16 16 32' ] || fail=y
+expect 0 - cipher-sizes "$cbc"
+[ "$(cat $NAME.got)" = '16 16 16 32' ] || fail=y
+for mode in 'ecb(aes):16 0 16 32' 'ctr(aes):1 16 16 32'; do
+	if kc-check available skcipher "${mode%%:*}" 2> /dev/null; then
+		expect 0 - cipher-sizes "${mode%%:*}"
+		[ "$(cat $NAME.got)" = "${mode#*:}" ] || fail=y
+	fi
+done
+expect 1 'kc-check: status=1 errnum=2: bind(): No such file or directory' \
+	cipher-sizes 'nosuch(aes)'
+expect 3 'kc-check: status=3 errnum=24: socket(AF_ALG): Too many open files' \
+	exhaust cipher-sizes 'cbc(aes)'
+
 . test-end.inc
