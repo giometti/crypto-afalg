@@ -19,6 +19,7 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <keyutils.h>
@@ -210,6 +211,73 @@ found:
 	return kc_ok(e);
 }
 
+KC_EXPORT int kc_key_blob(struct kc_key **k, const void *blob, size_t len,
+			  struct kc_error *e)
+{
+	static const char digits[] = "0123456789abcdef";
+	const unsigned char *b = blob;
+	char desc[32], *payload;
+	size_t plen = strlen("load "), i;
+	int err, status;
+
+	*k = NULL;
+	if (len == 0)
+		return kc_fail(e, KC_USAGE, EINVAL, "empty key blob");
+	if (len > (SIZE_MAX - plen) / 2)
+		return kc_fail(e, KC_USAGE, E2BIG, "key blob too long");
+	payload = malloc(plen + 2 * len);
+	if (!payload)
+		return kc_fail(e, KC_FAILED, ENOMEM, "%s", strerror(ENOMEM));
+	memcpy(payload, "load ", plen);
+	for (i = 0; i < len; i++) {
+		payload[plen++] = digits[b[i] >> 4];
+		payload[plen++] = digits[b[i] & 0xf];
+	}
+
+	/*
+	 * A second key with the description of one in the keyring is
+	 * refused: the address of the key, unique while it lives, tells
+	 * apart the keys of one thread
+	 */
+	status = new_key(k, 0, e);
+	if (!status) {
+		snprintf(desc, sizeof(desc), "kcrypto:%p", (void *) *k);
+		(*k)->serial = add_key("trusted", desc, payload, plen,
+				       KEY_SPEC_THREAD_KEYRING);
+		err = errno;
+		if ((*k)->serial < 0) {
+			free(*k);
+			*k = NULL;
+			status = kc_fail(e, KC_FAILED, err,
+					 "cannot load the trusted key blob: %s",
+					 strerror(err));
+		}
+	}
+	explicit_bzero(payload, plen);
+	free(payload);
+	if (status)
+		return status;
+	(*k)->type = KC_KEY_SERIAL;
+	(*k)->loaded = true;
+	return kc_ok(e);
+}
+
+KC_EXPORT int kc_key_unload(struct kc_key *k, struct kc_error *e)
+{
+	int err;
+
+	if (!k || !k->loaded)
+		return kc_ok(e);
+	if (keyctl_invalidate(k->serial) < 0) {
+		err = errno;
+		return kc_fail(e, KC_FAILED, err,
+			       "cannot remove the key %d: %s", k->serial,
+			       strerror(err));
+	}
+	k->loaded = false;
+	return kc_ok(e);
+}
+
 KC_EXPORT int32_t kc_key_serial(const struct kc_key *k)
 {
 	return k->type == KC_KEY_SERIAL ? k->serial : 0;
@@ -224,6 +292,8 @@ KC_EXPORT void kc_key_free(struct kc_key *k)
 {
 	if (!k)
 		return;
+	if (k->loaded)
+		keyctl_invalidate(k->serial);	/* intentionally ignored */
 	explicit_bzero(k->data, k->len);
 	free(k);
 }

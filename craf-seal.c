@@ -1,5 +1,5 @@
 /*
- * craf-seal.c - craf seal and unseal: the streams through AF_ALG
+ * craf-seal.c - craf seal and unseal: the streams through libkcrypto
  *
  * Copyright (C) 2026 Rodolfo Giometti <giometti@enneenne.com>
  *
@@ -25,53 +25,31 @@
 /* The header of the archive in hand */
 static struct craf_wbuf hdr;
 
-/* The socket of one operation of <driver>, with <key>, <op> and <iv> */
-static int open_cipher(const char *driver, const struct afalg_key *key,
-		       int op, const uint8_t *iv, int *fd)
+/*
+ * The library's "no" is a bad decrypt, or a driver the kernel does not
+ * have; anything else could not be done
+ */
+static int open_cipher(const char *driver, const struct kc_key *key,
+		       int encrypt, const uint8_t *iv, struct kc_cipher **c)
 {
-	int s;
+	struct kc_error e;
+	int status;
 
-	s = afalg_socket();
-	if (s < 0)
-		return craf_err(CRAF_FAILED, "socket(AF_ALG): %m");
-	if (afalg_bind(s, "skcipher", driver) < 0) {
-		err("cipher_driver \"%s\" not available: %m", driver);
-		close(s);
-		return CRAF_FAILED;
-	}
-	if (afalg_set_key(s, key) < 0) {
-		err("cannot set the key of \"%s\": %m", driver);
-		close(s);
-		return CRAF_FAILED;
-	}
-	*fd = afalg_accept(s);
-	close(s);		/* the operation keeps the transform */
-	if (*fd < 0)
-		return craf_err(CRAF_FAILED, "cannot open \"%s\": %m", driver);
-	if (afalg_set_op_iv(*fd, op, iv, CRAF_IV_LEN) < 0)
-		return craf_err(CRAF_FAILED, "cannot set the IV of \"%s\": %m",
-				driver);
+	status = kc_cipher_open(c, driver, key, encrypt, iv, CRAF_IV_LEN, &e);
+	if (status == KC_REFUSED)
+		return craf_err(CRAF_FAILED,
+				"cipher_driver \"%s\" not available: %s", driver,
+				strerror(e.errnum));
+	if (status)
+		return craf_err(CRAF_FAILED, "cannot open \"%s\": %s", driver,
+				e.msg);
 	return CRAF_OK;
 }
 
-static int process(int fd, const uint8_t *in, uint8_t *out, size_t len)
+static int cipher_err(const struct kc_error *e)
 {
-	ssize_t n;
-
-	n = afalg_send(fd, in, len);
-	if (n < 0)
-		return craf_err(CRAF_FAILED, "cannot send data to the kernel: %m");
-	if ((size_t) n != len)
-		return craf_err(CRAF_FAILED, "the kernel took %zd of %zu bytes",
-				n, len);
-	n = afalg_recv(fd, out, len);
-	if (n < 0)
-		return craf_err(CRAF_FAILED,
-				"cannot read data from the kernel: %m");
-	if ((size_t) n != len)
-		return craf_err(CRAF_FAILED, "the kernel gave %zd of %zu bytes",
-				n, len);
-	return CRAF_OK;
+	return craf_err(e->status == KC_REFUSED ? CRAF_REFUSED : CRAF_FAILED,
+			"%s", e->msg);
 }
 
 static int read_input(FILE *in, uint8_t *p, size_t size, size_t *n)
@@ -137,10 +115,12 @@ int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	const struct craf_key_source *src;
 	struct craf_keys keys = {};
 	struct craf_header h = {};
-	uint8_t plain[CRAF_BUF_SIZE + CRAF_BLOCK];
+	struct kc_cipher *c = NULL;
+	struct kc_error e;
+	uint8_t plain[CRAF_BUF_SIZE];
 	uint8_t cipher[CRAF_BUF_SIZE + CRAF_BLOCK];
-	size_t carry = 0, n, len, pad;
-	int enc = -1, status;
+	size_t n, len;
+	int status;
 
 	status = craf_seal_source(opts, &src);
 	if (status)
@@ -161,41 +141,33 @@ int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	status = craf_header_write(&hdr, &h, src, &keys);
 	if (status)
 		goto out;
-	status = open_cipher(h.cipher_driver, &keys.enc, ALG_OP_ENCRYPT, h.iv,
-			     &enc);
+	status = open_cipher(h.cipher_driver, keys.enc, 1, h.iv, &c);
 	if (!status)
 		status = write_output(out, hdr.data, hdr.len);
 	if (status)
 		goto out;
 
-	/* Whole blocks go out as they come, the rest waits for more */
 	do {
-		status = read_input(in, plain + carry, CRAF_BUF_SIZE, &n);
+		status = read_input(in, plain, sizeof(plain), &n);
 		if (status)
 			goto out;
-		len = carry + n;
-		carry = len % CRAF_BLOCK;
-		len -= carry;
-		if (len == 0)
-			continue;
-		status = process(enc, plain, cipher, len);
-		if (!status)
-			status = write_output(out, cipher, len);
+		if (kc_cipher_update(c, plain, n, cipher, &len, &e)) {
+			status = cipher_err(&e);
+			goto out;
+		}
+		status = write_output(out, cipher, len);
 		if (status)
 			goto out;
-		memmove(plain, plain + len, carry);
 	} while (n > 0);
 
-	/* PKCS#7: 1 to CRAF_BLOCK bytes, each holding their count */
-	pad = CRAF_BLOCK - carry;
-	memset(plain + carry, pad, pad);
-	status = process(enc, plain, cipher, CRAF_BLOCK);
-	if (!status)
-		status = write_output(out, cipher, CRAF_BLOCK);
+	/* The last block, with the PKCS#7 padding */
+	if (kc_cipher_final(c, cipher, &len, &e))
+		status = cipher_err(&e);
+	else
+		status = write_output(out, cipher, len);
 out:
-	if (enc >= 0)
-		close(enc);
-	src->release(&keys);
+	kc_cipher_free(c);
+	craf_release_keys(src, &keys);
 	return status;
 }
 
@@ -205,14 +177,13 @@ int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	const struct craf_key_source *src = NULL;
 	struct craf_keys keys = {};
 	struct craf_header h = {};
+	struct kc_cipher *c = NULL;
+	struct kc_error e;
 	char driver[CRAF_STR_MAX + 1];
-	uint8_t buf[CRAF_BUF_SIZE + CRAF_BLOCK];
+	uint8_t buf[CRAF_BUF_SIZE];
 	uint8_t plain[CRAF_BUF_SIZE + CRAF_BLOCK];
-	uint8_t held[CRAF_BLOCK];
-	size_t have = 0, n, take, pad, i;
-	bool holding = false;
-	uint8_t diff;
-	int enc = -1, status;
+	size_t n, len;
+	int status;
 
 	/* The whole header, its driver included, before the keyring */
 	status = craf_header_read(in, &hdr, &h, &src, &keys);
@@ -223,56 +194,34 @@ int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	if (!status)
 		status = src->unseal_keys(opts, &keys);
 	if (!status)
-		status = open_cipher(driver, &keys.enc, ALG_OP_DECRYPT, h.iv,
-				     &enc);
+		status = open_cipher(driver, keys.enc, 0, h.iv, &c);
 	if (status)
 		goto out;
 
 	/*
-	 * The last block decrypted may hold the padding: it goes out only
-	 * once another one follows, or at the end, without the padding.
+	 * The library holds back the last block, which may hold the
+	 * padding: it goes out at the end, without the padding.
 	 */
 	do {
-		status = read_input(in, buf + have, CRAF_BUF_SIZE, &n);
+		status = read_input(in, buf, sizeof(buf), &n);
 		if (status)
 			goto out;
-		have += n;
-		take = have - have % CRAF_BLOCK;
-		if (take == 0)
-			continue;
-		status = process(enc, buf, plain, take);
-		if (!status && holding)
-			status = write_output(out, held, CRAF_BLOCK);
-		if (!status)
-			status = write_output(out, plain, take - CRAF_BLOCK);
+		if (kc_cipher_update(c, buf, n, plain, &len, &e)) {
+			status = cipher_err(&e);
+			goto out;
+		}
+		status = write_output(out, plain, len);
 		if (status)
 			goto out;
-		memcpy(held, plain + take - CRAF_BLOCK, CRAF_BLOCK);
-		holding = true;
-		have -= take;
-		memmove(buf, buf + take, have);
 	} while (n > 0);
 
-	if (!holding || have != 0) {
-		status = craf_err(CRAF_REFUSED,
-				  "bad decrypt (wrong final block length)");
-		goto out;
-	}
-
-	/* PKCS#7, as crypto-afalg and openssl check it */
-	pad = held[CRAF_BLOCK - 1];
-	diff = pad == 0 || pad > CRAF_BLOCK;
-	for (i = CRAF_BLOCK - (diff ? 0 : pad); i < CRAF_BLOCK; i++)
-		diff |= held[i] ^ pad;
-	if (diff) {
-		status = craf_err(CRAF_REFUSED, "bad decrypt (wrong padding)");
-		goto out;
-	}
-	status = write_output(out, held, CRAF_BLOCK - pad);
+	if (kc_cipher_final(c, plain, &len, &e))
+		status = cipher_err(&e);
+	else
+		status = write_output(out, plain, len);
 out:
-	if (enc >= 0)
-		close(enc);
+	kc_cipher_free(c);
 	if (src)
-		src->release(&keys);
+		craf_release_keys(src, &keys);
 	return status;
 }

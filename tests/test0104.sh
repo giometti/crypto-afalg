@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo -n "library     [libafalg]: "
+echo -n "library     [libkcrypto]: "
 
 . test-preset.inc
 
@@ -20,22 +20,21 @@ exports () {
 
 fail=n
 bin=$(command -v crypto-afalg)
-lib=$(dirname "$bin")/libafalg.so.0
 kc=$(dirname "$bin")/libkcrypto.so.0
 
-# crypto-afalg takes its crypto from libkcrypto only
-readelf -d "$bin" > $NAME.out || fail=y
-grep -qF 'Shared library: [libkcrypto.so.0]' $NAME.out || fail=y
-if grep -qF 'Shared library: [libafalg.so.0]' $NAME.out; then
-	fail=y
-fi
-readelf -d "$lib" > $NAME.out || fail=y
-grep -qF 'Library soname: [libafalg.so.0]' $NAME.out || fail=y
+# The tools take their crypto from libkcrypto only, and none of them
+# from the libafalg it replaces or from OpenSSL's libcrypto
+for f in crypto-afalg craf libkcrypto.so.0; do
+	readelf -d "$(dirname "$bin")/$f" > $NAME.out || fail=y
+	if grep -qE 'Shared library: \[lib(afalg|crypto)\.so' $NAME.out; then
+		fail=y
+	fi
+	[ $f = libkcrypto.so.0 ] ||
+		grep -qF 'Shared library: [libkcrypto.so.0]' $NAME.out || fail=y
+done
 readelf -d "$kc" > $NAME.out || fail=y
 grep -qF 'Library soname: [libkcrypto.so.0]' $NAME.out || fail=y
 
-exports "$lib" afalg_accept afalg_bind afalg_key_from_spec afalg_recv \
-	afalg_send afalg_set_key afalg_set_op_iv afalg_socket
 # What kcrypto.h declares, as the build used it
 exports "$kc" $(sed -n 's/^extern .*[ *]\(kc_[a-z0-9_]*\)(.*$/\1/p' \
 	"$(dirname "$bin")/lib/kcrypto.h")

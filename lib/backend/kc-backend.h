@@ -30,6 +30,7 @@ struct kc_key {
 		KC_KEY_SERIAL,
 	} type;
 	int32_t serial;		/* a key_serial_t of keyutils.h */
+	bool loaded;		/* by the library, which unloads it */
 	size_t len;
 	unsigned char data[];
 };

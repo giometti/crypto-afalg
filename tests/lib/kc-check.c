@@ -23,6 +23,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <keyutils.h>
 #include <linux/if_alg.h>
 #include "kcrypto.h"
 
@@ -44,13 +45,19 @@ static void __attribute__((noreturn)) usage(void)
 		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
 		"    the digest in hex on stdout; <key> is - for none,\n"
-		"    hex:<bytes> or spec:<spec>\n"
+		"    hex:<bytes>, spec:<spec> or blob:<trusted key blob>\n"
 		"  hash-after <name> <room> final|update: after a final with\n"
 		"    room bytes, the status of one more call\n"
 		"  cipher enc|dec <name> <key> <iv>: stdin in pieces of many\n"
 		"    sizes, the result on stdout; <iv> in hex\n"
 		"  cipher-after enc|dec <name> <key> <iv>: after a final, the\n"
 		"    status of one more update\n"
+		"  blob-unload <blob> <name>: the status of a cipher opened\n"
+		"    with the key once unloaded, twice\n"
+		"  blob-gone <blob>: the status of an unload once the key is\n"
+		"    gone already\n"
+		"  blob-twice <blob>: the status of a second key of the same\n"
+		"    blob, the first one still loaded\n"
 		"  pbkdf2 <hmac> <pass> <salt> <iter> <len>: in hex\n"
 		"  header: the salt of the openssl enc header on stdin\n"
 		"  header-make <salt>: the header on stdout\n"
@@ -133,7 +140,7 @@ static size_t parse_hex(const char *s, unsigned char *buf, size_t size)
 	return len;
 }
 
-/* "-", "hex:<bytes>" or "spec:<spec>": NULL for none */
+/* "-", "hex:<bytes>", "spec:<spec>" or "blob:<bytes>": NULL for none */
 static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 {
 	unsigned char buf[1024];
@@ -146,6 +153,9 @@ static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 				  e);
 	if (strncmp(arg, "spec:", 5) == 0)
 		return kc_key_spec(k, arg + 5, e);
+	if (strncmp(arg, "blob:", 5) == 0)
+		return kc_key_blob(k, buf, parse_hex(arg + 5, buf, sizeof(buf)),
+				   e);
 	usage();
 }
 
@@ -330,6 +340,64 @@ static int cipher_after(const char *dir, const char *name, const char *key,
 	return status;
 }
 
+/* An unloaded key is out of the keyring: a second unload has nothing to do */
+static int blob_unload(const char *blob, const char *name, struct kc_error *e)
+{
+	unsigned char iv[16] = { 0 };
+	struct kc_cipher *c = NULL;
+	struct kc_key *k;
+	char arg[2048];
+	int status;
+
+	snprintf(arg, sizeof(arg), "blob:%s", blob);
+	status = make_key(arg, &k, e);
+	if (!status)
+		status = kc_key_unload(k, e);
+	if (!status)
+		status = kc_key_unload(k, e);
+	if (!status)
+		status = kc_cipher_open(&c, name, k, 1, iv, sizeof(iv), e);
+	kc_cipher_free(c);
+	kc_key_free(k);
+	return status;
+}
+
+/* The key taken out of the keyring behind the library's back */
+static int blob_gone(const char *blob, struct kc_error *e)
+{
+	struct kc_key *k;
+	char arg[2048];
+	int status;
+
+	snprintf(arg, sizeof(arg), "blob:%s", blob);
+	status = make_key(arg, &k, e);
+	if (status)
+		return status;
+	if (keyctl_invalidate(kc_key_serial(k)) < 0) {
+		perror("kc-check: keyctl_invalidate");
+		exit(EXIT_USAGE);
+	}
+	status = kc_key_unload(k, e);
+	kc_key_free(k);
+	return status;
+}
+
+static int blob_twice(const char *blob, struct kc_error *e)
+{
+	struct kc_key *k1, *k2 = NULL;
+	char arg[2048];
+	int status;
+
+	snprintf(arg, sizeof(arg), "blob:%s", blob);
+	status = make_key(arg, &k1, e);
+	if (status)
+		return status;
+	status = make_key(arg, &k2, e);
+	kc_key_free(k2);
+	kc_key_free(k1);
+	return status;
+}
+
 static int pbkdf2(const char *hmac, const char *pass_hex,
 		  const char *salt_hex, const char *iter, const char *len,
 		  struct kc_error *e)
@@ -448,6 +516,12 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "hash-after") == 0 && argc == 5)
 		status = hash_after(argv[2], strtoul(argv[3], NULL, 10),
 				    argv[4], &e);
+	else if (strcmp(argv[1], "blob-unload") == 0 && argc == 4)
+		status = blob_unload(argv[2], argv[3], &e);
+	else if (strcmp(argv[1], "blob-gone") == 0 && argc == 3)
+		status = blob_gone(argv[2], &e);
+	else if (strcmp(argv[1], "blob-twice") == 0 && argc == 3)
+		status = blob_twice(argv[2], &e);
 	else if (strcmp(argv[1], "pbkdf2") == 0 && argc == 7)
 		status = pbkdf2(argv[2], argv[3], argv[4], argv[5], argv[6],
 				&e);

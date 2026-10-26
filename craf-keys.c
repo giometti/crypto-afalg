@@ -26,11 +26,10 @@
 /* A trusted key blob, as long as the length of its header field counts */
 #define BLOB_MAX		UINT16_MAX
 
-/* The state of source "trusted": the blob, and the key loaded from it */
+/* The state of source "trusted": the blob of its key */
 struct trusted {
 	uint8_t blob[BLOB_MAX];
 	uint16_t len;
-	key_serial_t id;
 };
 
 /*
@@ -60,18 +59,17 @@ static int check_user_key(const char *opt, key_serial_t id)
 	return CRAF_OK;
 }
 
-static int resolve(const char *opt, const char *spec, struct afalg_key *key)
+static int resolve(const char *opt, const char *spec, struct kc_key **key)
 {
-	char msg[1024];
+	struct kc_error e;
 	int status;
 
-	if (afalg_key_from_spec(spec, key, msg, sizeof(msg)) < 0) {
-		/* A malformed or an ambiguous spec, or a key not there */
-		status = errno == EINVAL || errno == ENOTUNIQ ? CRAF_USAGE :
-			 CRAF_FAILED;
-		return craf_err(status, "%s: %s", opt, msg);
-	}
-	return check_user_key(opt, key->serial);
+	/* A malformed or an ambiguous spec, or a key not there */
+	status = kc_key_spec(key, spec, &e);
+	if (status)
+		return craf_err(status == KC_USAGE ? CRAF_USAGE : CRAF_FAILED,
+				"%s: %s", opt, e.msg);
+	return check_user_key(opt, kc_key_serial(*key));
 }
 
 /*
@@ -164,45 +162,30 @@ static int read_blob(const char *path, struct trusted *t)
 }
 
 /*
- * The key goes into the thread keyring: no other process can find it,
- * and it goes with the process, even one that is killed. What the
- * kernel loads is the blob the header holds, in the kernel's own form.
- * The key has the length it was made with, which craf cannot read: 32
- * bytes is up to whoever made it. A blob that needs options to load,
- * such as a TPM 2.0 policy, cannot be used. path names the -enc-blob
- * file, NULL for the blob an archive carries.
+ * What the kernel loads is the blob the header holds, in the kernel's
+ * own form. The key has the length it was made with, which craf cannot
+ * read: 32 bytes is up to whoever made it. A blob that needs options to
+ * load, such as a TPM 2.0 policy, cannot be used. path names the
+ * -enc-blob file, NULL for the blob an archive carries.
  */
-static int load_blob(struct trusted *t, const char *path,
-		     struct afalg_key *key)
+static int load_blob(struct trusted *t, const char *path, struct kc_key **key)
 {
-	static const char digits[] = "0123456789abcdef";
-	static char payload[sizeof("load ") + 2 * BLOB_MAX];
-	size_t len = strlen("load "), i;
+	struct kc_error e;
 	const char *hint;
 
-	memcpy(payload, "load ", len);
-	for (i = 0; i < t->len; i++) {
-		payload[len++] = digits[t->blob[i] >> 4];
-		payload[len++] = digits[t->blob[i] & 0xf];
-	}
-	t->id = add_key("trusted", "craf", payload, len,
-			KEY_SPEC_THREAD_KEYRING);
-	if (t->id < 0) {
-		/* ENODEV: no "trusted" key type is registered */
-		hint = errno == ENODEV ?
-			"no trusted keys in the kernel, or no trust source up" :
-			"sealed on another system, or changed?";
-		if (path)
-			return craf_err(CRAF_FAILED,
-					"-enc-blob: cannot load the trusted key blob in %s: %m (%s)",
-					path, hint);
+	if (!kc_key_blob(key, t->blob, t->len, &e))
+		return CRAF_OK;
+	/* ENODEV: no "trusted" key type is registered */
+	hint = e.errnum == ENODEV ?
+		"no trusted keys in the kernel, or no trust source up" :
+		"sealed on another system, or changed?";
+	if (path)
 		return craf_err(CRAF_FAILED,
-				"cannot load the trusted key blob the archive carries: %m (%s)",
-				hint);
-	}
-	key->type = AFALG_KEY_SERIAL;
-	key->serial = t->id;
-	return CRAF_OK;
+				"-enc-blob: cannot load the trusted key blob in %s: %s (%s)",
+				path, strerror(e.errnum), hint);
+	return craf_err(CRAF_FAILED,
+			"cannot load the trusted key blob the archive carries: %s (%s)",
+			strerror(e.errnum), hint);
 }
 
 static int trusted_state(struct craf_keys *keys, struct trusted **t)
@@ -261,14 +244,7 @@ static int trusted_unseal_keys(const struct craf_key_opts *opts,
 
 static void trusted_release(struct craf_keys *keys)
 {
-	struct trusted *t = keys->priv;
-
-	if (!t)
-		return;
-	/* Not fatal: the thread keyring goes at the exit anyway */
-	if (t->id > 0 && keyctl_invalidate(t->id) < 0)
-		err("cannot remove the trusted key %d: %m", t->id);
-	free(t);
+	free(keys->priv);
 	keys->priv = NULL;
 }
 
@@ -315,4 +291,21 @@ const struct craf_key_source *craf_key_source_by_name(const char *name)
 		if (strcmp(sources[i]->name, name) == 0)
 			return sources[i];
 	return NULL;
+}
+
+/*
+ * A key the library loaded that it cannot take out of the keyring is not
+ * fatal: the thread keyring goes at the exit anyway
+ */
+void craf_release_keys(const struct craf_key_source *src,
+		       struct craf_keys *keys)
+{
+	struct kc_error e;
+
+	src->release(keys);
+	if (kc_key_unload(keys->enc, &e))
+		err("cannot remove the trusted key %d: %s",
+		    kc_key_serial(keys->enc), strerror(e.errnum));
+	kc_key_free(keys->enc);
+	keys->enc = NULL;
 }

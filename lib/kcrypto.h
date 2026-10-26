@@ -119,10 +119,29 @@ extern int kc_key_spec(struct kc_key **k, const char *spec,
  */
 extern int kc_key_serial_supported(void);
 
+/*
+ * The key of a trusted key blob, the bytes the kernel gives (keyctl pipe
+ * writes them in hex), which only the trust source that sealed it can
+ * load: loaded into the keyring of the calling thread, out of reach of
+ * any other process and gone with that thread, and so with the process,
+ * and used by its serial, as a keyring key. Use it, and free it, in that
+ * thread.
+ * kc_key_unload() takes it out of the keyring at once, KC_FAILED when
+ * the kernel refuses (KC_OK for any other key); kc_key_free() takes it
+ * out too, if it is still there, saying nothing of a failure.
+ */
+extern int kc_key_blob(struct kc_key **k, const void *blob, size_t len,
+		       struct kc_error *e);
+extern int kc_key_unload(struct kc_key *k, struct kc_error *e);
+
 /* The serial of a keyring key, 0 for raw bytes */
 extern int32_t kc_key_serial(const struct kc_key *k);
 
-/* Clears raw bytes and frees; NULL is ignored */
+/*
+ * Clears raw bytes and frees; a key of kc_key_blob() still loaded is
+ * taken out of the keyring first, in the thread that loaded it only,
+ * saying nothing of a failure. NULL is ignored.
+ */
 extern void kc_key_free(struct kc_key *k);
 
 /*

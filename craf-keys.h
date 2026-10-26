@@ -28,17 +28,18 @@ struct craf_key_opts {
 	const char *enc_blob;		/* seal -enc-blob */
 };
 
-/* The key of an archive, ready for afalg_set_key() */
+/* The key of an archive, ready for kc_cipher_open() */
 struct craf_keys {
-	struct afalg_key enc;
+	struct kc_key *enc;
 	void *priv;			/* the key source's own state */
 };
 
 /*
  * Where the key comes from. The archive format and the two streams do
  * not depend on it: a new source is one more of these. Each function
- * returns a craf exit status, having reported a failure; release() runs
- * whatever happened before, once the source is chosen.
+ * returns a craf exit status, having reported a failure; release() frees
+ * the source's own state, whatever happened before, once the source is
+ * chosen, through craf_release_keys(), which frees the key too.
  */
 struct craf_key_source {
 	const char *name;		/* key_source in the header */
@@ -57,5 +58,7 @@ extern int craf_seal_source(const struct craf_key_opts *opts,
 extern int craf_unseal_key_opts(const struct craf_key_source *src,
 				const struct craf_key_opts *opts);
 extern const struct craf_key_source *craf_key_source_by_name(const char *name);
+extern void craf_release_keys(const struct craf_key_source *src,
+			      struct craf_keys *keys);
 
 #endif /* CRAF_KEYS_H */

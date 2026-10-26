@@ -26,6 +26,8 @@ craf_expect 3 "cannot get ID for user key $NAME-none in keyring @s" \
 craf_expect 2 'unknown keyring name "nokeyring"' $NAME.craf \
 	unseal -enc-key nokeyring,user,x
 craf_expect 2 'invalid key serial number' $NAME.craf unseal -enc-key 0
+craf_expect 2 'key x in keyring @s: Invalid argument' $NAME.craf \
+	unseal -enc-key @s,$(printf 't%.0s' $(seq 32)),x
 craf_expect 2 'unseal: the archive needs -enc-key' $NAME.craf unseal
 craf_expect 2 'seal: -enc-key or -enc-blob is required' $NAME.in \
 	seal -cipher-driver $driver
