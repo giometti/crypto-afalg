@@ -53,8 +53,9 @@ Every function that can fail returns one of four statuses and, when its last arg
 | `kc_pbkdf2(hmac, pass, pass_len, salt, salt_len, iter, out, out_len, e)` | PBKDF2 (RFC 8018) over an HMAC by the name of the algorithm, such as `hmac(sha256)`, or of a driver of one, `KC_REFUSED` when the kernel has no such HMAC, `KC_FAILED` (`ENOSYS`) for a hash that is not an HMAC, such as `sha256`: `out_len` bytes into `out`; `iter` and `out_len` are at least 1 |
 | `kc_openssl_header(buf, len, salt, e)` | the salt of the header that `openssl enc` writes before what it encrypts with a passphrase and a random salt, `Salted__` and 8 bytes, from the first `KC_OPENSSL_HEADER_LEN` bytes of the stream; `KC_REFUSED` when they do not start with `Salted__`, or when `len`, what the stream had, is shorter |
 | `kc_openssl_header_make(buf, salt)` | writes such a header |
+| `kc_openssl_derive(hmac, pass, pass_len, salt, iter, key_len, &k, iv, iv_len, e)` | the key and the IV that `openssl enc -pbkdf2` derives from a passphrase and the salt of its header: PBKDF2 over `hmac` (`hmac(sha256)` is openssl's default) with `iter` iterations (10000 is openssl's default), `key_len` bytes of key first, as a key of raw bytes in `k`, then `iv_len` bytes of IV in `iv`. `key_len` is 1 to `KC_OPENSSL_KEY_MAX` (64, more than any cipher of `openssl enc` takes), `iv_len` at most `KC_BLOCK_MAX`, 0 for a mode without an IV, `iter` at least 1, else `KC_USAGE` (`EINVAL`); `KC_REFUSED` when the kernel has no such HMAC. The bytes it derives are cleared once the key is made; `k` is NULL after a failure |
 
-With these, a file of `openssl enc -pbkdf2` and its defaults is decrypted by reading the header, deriving `kc_pbkdf2()` over `hmac(sha256)`, 10000 iterations, as many bytes as the key and the IV together, the key first, and decrypting the rest of the file with them.
+With these, a file of `openssl enc -pbkdf2` is decrypted by reading the salt with `kc_openssl_header()`, deriving the key and the IV with `kc_openssl_derive()`, and decrypting the rest of the file with them.
 
 ## A typical use
 
