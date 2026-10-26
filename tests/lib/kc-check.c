@@ -23,6 +23,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <linux/if_alg.h>
 #include "kcrypto.h"
 
 /* Not a kc_status: the command line of kc-check itself was wrong */
@@ -37,6 +38,7 @@ static void __attribute__((noreturn)) usage(void)
 		"  available <type> <name>\n"
 		"  driver <type> <driver> <algo>\n"
 		"  key-spec <spec>: prints the serial\n"
+		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
 		"    the digest in hex on stdout; <key> is - for none,\n"
 		"    hex:<bytes> or spec:<spec>\n"
@@ -184,6 +186,31 @@ static int key_spec(const char *spec, struct kc_error *e)
 	printf("%d\n", kc_key_serial(k));
 	kc_key_free(k);
 	return KC_OK;
+}
+
+/*
+ * Filled in here: the library answers with no kc_status. Its answer must
+ * be what the headers of this build say, which are the library's too.
+ */
+static int key_serial(struct kc_error *e)
+{
+#ifdef ALG_SET_KEY_BY_KEY_SERIAL
+	const int headers = 1;
+#else
+	const int headers = 0;
+#endif
+
+	if (kc_key_serial_supported() != headers) {
+		fprintf(stderr,
+			"kc-check: the library says %d, the headers %d\n",
+			kc_key_serial_supported(), headers);
+		exit(EXIT_USAGE);
+	}
+	e->status = headers ? KC_OK : KC_REFUSED;
+	e->errnum = 0;
+	snprintf(e->msg, sizeof(e->msg), "%s",
+		 e->status ? "no keyring keys" : "");
+	return e->status;
 }
 
 static int hash(const char *name, const char *key, size_t room,
@@ -378,6 +405,8 @@ int main(int argc, char *argv[])
 		status = kc_driver_check(argv[2], argv[3], argv[4], &e);
 	else if (strcmp(argv[1], "key-spec") == 0 && argc == 3)
 		status = key_spec(argv[2], &e);
+	else if (strcmp(argv[1], "key-serial") == 0 && argc == 2)
+		status = key_serial(&e);
 	else if (strcmp(argv[1], "hash-after") == 0 && argc == 5)
 		status = hash_after(argv[2], strtoul(argv[3], NULL, 10),
 				    argv[4], &e);

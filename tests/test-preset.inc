@@ -13,6 +13,21 @@ check-kalgo () {
 	crypto-afalg $1 check-kalgo $2
 }
 
+# usage: key_serial: whether libkcrypto takes keyring keys, asked to it,
+# so that what the tools offer is checked against it, not taken from
+# them; a kc-check that fails ends the test as a failure
+key_serial () {
+	local rc=0
+
+	kc-check key-serial 2> $NAME.ks || rc=$?
+	if [ $rc -gt 1 ]; then
+		echo "kc-check key-serial: exit $rc, $(cat $NAME.ks)"
+		echo KO!
+		exit 1
+	fi
+	return $rc
+}
+
 # usage: driver_of <algorithm> <type>...: the driver of the algorithm, of
 # one of the types, that the kernel takes: the highest priority among the
 # tested, not internal ones /proc/crypto lists, the first one among equals

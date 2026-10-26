@@ -225,10 +225,11 @@ static void usage_cipher(const char *cmd)
         fprintf(stderr,
                 "where <KEY> can be one of:\n"
                 "    -K|--key <val>          : hex value key\n"
-                "    -k|--keyfile <name>     : key from file\n"
-#ifdef ALG_SET_KEY_BY_KEY_SERIAL
-                "    -S|--keyserial <val>    : key from keyring\n"
-#endif
+                "    -k|--keyfile <name>     : key from file\n");
+	if (kc_key_serial_supported())
+		fprintf(stderr,
+			"    -S|--keyserial <val>    : key from keyring\n");
+	fprintf(stderr,
                 "where <IV> can be one of:\n"
                 "    -V|--iv <val>           : hex value iv\n"
                 "    -v|--ivfile <name>      : iv from file\n");
@@ -239,13 +240,13 @@ static void usage_cipher(const char *cmd)
                 "where <SALT> can be one of:\n"
                 "    -T|--salt <val>         : hex value salt\n"
                 "    -t|--saltfile <name>    : salt from file\n");
-#ifdef ALG_SET_KEY_BY_KEY_SERIAL
+	if (!kc_key_serial_supported())
+		return;
 	fprintf(stderr,
 		"NOTE: keyring key can be:\n"
 		"      - a simple serial number, or\n"
 		"      - a symbolic name as [<keyring>,]<type>,<name>, with\n"
 		"        <keyring> @u (user, the default) or @s (session)\n");
-#endif
 }
 
 void do_crypt(int argc, char *argv[])
@@ -326,11 +327,9 @@ void do_crypt(int argc, char *argv[])
 						key, algo_key_len(algo));
 				break;
 			case 'S':
-#ifdef ALG_SET_KEY_BY_KEY_SERIAL
+				if (!kc_key_serial_supported())
+					fatal("option -S|--keyserial unsupported");
 				spec_key(optarg, &kkey);
-#else
-				fatal("option -S|--keyserial unsupported");
-#endif
 				break;
 			}
 			break;

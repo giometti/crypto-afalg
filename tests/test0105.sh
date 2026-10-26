@@ -4,15 +4,26 @@ echo -n "keyserial   [spec]: "
 
 . test-preset.inc
 
-# The help is captured first: grep -q on a pipe can make it fail by SIGPIPE
-crypto-afalg hash -h > $NAME.help 2>&1
-if ! grep -q keyserial $NAME.help ||
-	! keyctl new_session > /dev/null 2>&1; then
+# crypto-afalg offers -S exactly when the library takes keyring keys; the
+# help is captured first: grep -q on a pipe can make it fail by SIGPIPE
+fail=n
+for cmd in encrypt hash; do
+	crypto-afalg $cmd -h > $NAME.help 2>&1 || true
+	if grep -q keyserial $NAME.help; then
+		key_serial || fail=y
+	elif key_serial; then
+		fail=y
+	fi
+done
+if ! key_serial; then
+	echo -n "(no keyring keys) "
+	. test-end.inc
+fi
+if ! keyctl new_session > /dev/null 2>&1; then
 	echo Skipped
 	exit 0
 fi
 
-fail=n
 head -c 32 /dev/urandom > $NAME.key
 key=$(od -An -tx1 -v $NAME.key | tr -d ' \n')
 id=$(keyctl padd user $NAME @s < $NAME.key)

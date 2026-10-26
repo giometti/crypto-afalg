@@ -16,9 +16,7 @@ craf_skip () {	# [<reason>]
 
 # Keys go into an anonymous session keyring, gone when the test ends
 keyctl new_session > /dev/null 2>&1 || craf_skip
-# The help is captured first: grep -q on a pipe can make it fail by SIGPIPE
-crypto-afalg hash -h > $NAME.help 2>&1
-grep -q keyserial $NAME.help || craf_skip
+key_serial || craf_skip "no keyring keys in libkcrypto"
 type openssl > /dev/null 2>&1 || craf_skip
 
 # <hex> as bytes

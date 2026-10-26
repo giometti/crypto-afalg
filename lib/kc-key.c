@@ -215,6 +215,11 @@ KC_EXPORT int32_t kc_key_serial(const struct kc_key *k)
 	return k->type == KC_KEY_SERIAL ? k->serial : 0;
 }
 
+KC_EXPORT int kc_key_serial_supported(void)
+{
+	return KC_BACKEND->key_serial;
+}
+
 KC_EXPORT void kc_key_free(struct kc_key *k)
 {
 	if (!k)

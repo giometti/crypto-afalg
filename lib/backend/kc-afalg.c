@@ -293,6 +293,9 @@ static void afalg_end(struct kc_op *op)
 }
 
 const struct kc_backend kc_afalg_backend = {
+#ifdef ALG_SET_KEY_BY_KEY_SERIAL
+	.key_serial	= true,
+#endif
 	.available	= afalg_available,
 	.open		= afalg_open,
 	.set_key	= afalg_set_key,

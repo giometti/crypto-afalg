@@ -65,8 +65,7 @@ expect 2 'kc-check: status=2 errnum=22: key type too long' \
 	key-spec @s,$long,x
 
 # Keyring keys, in a session keyring of the test's own
-crypto-afalg hash -h > $NAME.help 2>&1
-if grep -q keyserial $NAME.help && keyctl new_session > /dev/null 2>&1; then
+if key_serial && keyctl new_session > /dev/null 2>&1; then
 	head -c 32 /dev/urandom > $NAME.key
 	hex=$(od -An -tx1 -v $NAME.key | tr -d ' \n')
 	id=$(keyctl padd user $NAME @s < $NAME.key)

@@ -20,6 +20,7 @@
 #ifndef KC_BACKEND_H
 #define KC_BACKEND_H
 
+#include <stdbool.h>
 #include "kc-internal.h"
 
 /* A key as a backend sets it: raw bytes, or a keyring key by serial */
@@ -42,6 +43,9 @@ struct kc_op;
  * kc_status and fills e as the library's own functions do
  */
 struct kc_backend {
+	/* Whether set_key() takes a keyring key */
+	bool key_serial;
+
 	/* Whether the kernel takes name as an algorithm of type */
 	int (*available)(const char *type, const char *name,
 			 struct kc_error *e);

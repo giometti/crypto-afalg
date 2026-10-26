@@ -83,14 +83,19 @@ extern int kc_key_raw(struct kc_key **k, const void *data, size_t len,
  * "session"). With two commas the first field is the keyring, so a
  * description with a comma needs the keyring. A serial is taken as it
  * is, not looked up; a description is refused when more than one key
- * holds it in the keyrings the caller can read. The kernel takes a
- * keyring key from Linux 6.2, and the library only when built with an
- * <linux/if_alg.h> that defines ALG_SET_KEY_BY_KEY_SERIAL: otherwise
- * what is opened with it is KC_FAILED (EOPNOTSUPP from such a library,
- * the kernel's errno from an older kernel).
+ * holds it in the keyrings the caller can read. What is opened with a
+ * keyring key is KC_FAILED where kc_key_serial_supported() is 0
+ * (EOPNOTSUPP) or the kernel is older than Linux 6.2 (its errno).
  */
 extern int kc_key_spec(struct kc_key **k, const char *spec,
 		       struct kc_error *e);
+
+/*
+ * Whether this library can hand the kernel a keyring key: 1 when it was
+ * built with an <linux/if_alg.h> that defines ALG_SET_KEY_BY_KEY_SERIAL,
+ * 0 otherwise. The kernel takes one from Linux 6.2.
+ */
+extern int kc_key_serial_supported(void);
 
 /* The serial of a keyring key, 0 for raw bytes */
 extern int32_t kc_key_serial(const struct kc_key *k);

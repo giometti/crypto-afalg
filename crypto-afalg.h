@@ -25,7 +25,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
-#include <linux/if_alg.h>	/* ALG_SET_KEY_BY_KEY_SERIAL: -S offered */
 #include <string.h>
 #include "kcrypto.h"
 #include "misc.h"
