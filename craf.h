@@ -62,11 +62,53 @@ struct craf_driver_opts {
 
 struct craf_key_opts;
 
+/* Where the passphrase of enc comes from: the last option given says */
+enum craf_pass_from {
+	CRAF_PASS_NONE,
+	CRAF_PASS_KFILE,		/* -kfile */
+	CRAF_PASS_TEXT,			/* -k */
+	CRAF_PASS_SPEC,			/* -pass */
+};
+
+/* What the command line says to enc */
+struct craf_enc_opts {
+	bool help;
+	bool decrypt;			/* -d, with no -e after it */
+	const char *in;
+	const char *out;
+	const char *openssl_name;	/* -<cipher>, without the dash */
+	const char *cipher_algo;	/* -cipher-algo */
+	long cipher_key_len;		/* -cipher-key-len, 0 if not given */
+	const char *cipher_driver;	/* -cipher-driver */
+	char kname[CRAF_STR_MAX + 1];	/* the cipher as the kernel names it */
+	size_t key_len;			/* 0: the only one the kernel takes */
+	bool pbkdf2;
+	long iter;			/* 0: openssl's default */
+	const char *md;
+	enum craf_pass_from pass_from;
+	const char *pass;		/* the file, the text or the source */
+	int pass_fd;			/* of -pass fd:, -1 for none */
+};
+
+/* A file of key material, read after the output is truncated */
+struct craf_key_file {
+	const char *what;		/* the option that names it */
+	const char *path;		/* NULL, or */
+	int fd;				/* a descriptor, -1 for none */
+};
+
 extern int craf_driver_listed(const char *what, const char *driver,
 			      const char *algo, int mismatch, bool user);
 extern int craf_driver_check(const char *what, const char *driver,
 			     const char *algo, int mismatch);
 extern int craf_driver_for_algo(const char *algo, char *driver);
+
+extern int craf_check_driver_name(const char *name);
+
+extern int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o);
+extern void craf_enc_key_file(const struct craf_enc_opts *o,
+			      struct craf_key_file *kf);
+extern int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o);
 
 extern int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 		     const struct craf_key_opts *keys);

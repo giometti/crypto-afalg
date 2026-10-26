@@ -38,8 +38,16 @@ static void usage(FILE *f)
 		"  unseal [ -in <file> ] [ -out <file> ]\n"
 		"       [ -cipher-driver <driver> | -any-driver ] [ -enc-key <key> ]\n"
 		"      decrypt an archive; -enc-key for one sealed with -enc-key\n"
+		"  enc -d [ -in <file> ] [ -out <file> ]\n"
+		"       -<openssl cipher> | -cipher-algo <cipher> [ -cipher-key-len <n> ]\n"
+		"       -pbkdf2 | -iter <n>  [ -md <hash> ]\n"
+		"       -kfile <file> | -k <passphrase> | -pass <source>\n"
+		"       [ -cipher-driver <driver> ]\n"
+		"      decrypt a file of openssl enc -pbkdf2, e.g. -aes-256-cbc;\n"
+		"      <source> is pass:<text>, file:<file>, env:<name> or fd:<n>\n"
 		"where:\n"
-		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce\n"
+		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce;\n"
+		"        for enc, of the cipher given\n"
 		"  <key> is a keyring key: a serial number, or\n"
 		"        [<keyring>,]<type>,<description> (keyring @u or @s)\n"
 		"  <file> of -enc-blob holds the blob of a trusted key in hex,\n"
@@ -61,7 +69,7 @@ static void version(void)
 }
 
 /* A driver name goes into the header as it is, and to bind() */
-static int check_driver_name(const char *name)
+int craf_check_driver_name(const char *name)
 {
 	size_t i, len = strlen(name);
 
@@ -92,7 +100,7 @@ static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 			return craf_err(CRAF_USAGE, "unseal: give -cipher-driver "
 					"or -any-driver, not both");
 		if (drv->cipher_driver)
-			return check_driver_name(drv->cipher_driver);
+			return craf_check_driver_name(drv->cipher_driver);
 		return CRAF_OK;
 	}
 	if (!keys->enc_key && !keys->enc_blob)
@@ -116,7 +124,7 @@ static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 				"-cipher-algo: unsupported \"%s\", only %s",
 				drv->cipher_algo, CRAF_CIPHER_ALGO);
 	if (drv->cipher_driver)
-		return check_driver_name(drv->cipher_driver);
+		return craf_check_driver_name(drv->cipher_driver);
 	return CRAF_OK;
 }
 
@@ -192,19 +200,25 @@ fail:
 
 /*
  * The output is truncated before the key is prepared, so a -out that is
- * also the -enc-blob file would lose the blob before it is read. A file
- * that cannot be looked at here is left to the reading, which reports it.
+ * also the file of the key (-enc-blob, -kfile, -pass) would lose it before
+ * it is read. A file that cannot be looked at here is left to the reading,
+ * which reports it.
  */
-static int check_blob_output(const char *blob, const char *out)
+static int check_key_output(const struct craf_key_file *kf, const char *out)
 {
-	struct stat sb, so;
+	struct stat sk, so;
+	int ret;
 
-	if (!blob || !out || stat(blob, &sb) < 0 || stat(out, &so) < 0)
+	if (!out || (!kf->path && kf->fd < 0))
 		return CRAF_OK;
-	if (S_ISREG(sb.st_mode) && S_ISREG(so.st_mode) &&
-	    sb.st_dev == so.st_dev && sb.st_ino == so.st_ino)
+	ret = kf->path ? stat(kf->path, &sk) : fstat(kf->fd, &sk);
+	if (ret < 0 || stat(out, &so) < 0)
+		return CRAF_OK;
+	if (S_ISREG(sk.st_mode) && S_ISREG(so.st_mode) &&
+	    sk.st_dev == so.st_dev && sk.st_ino == so.st_ino)
 		return craf_err(CRAF_USAGE,
-				"the output and the -enc-blob file are the same file");
+				"the output and the %s file are the same file",
+				kf->what);
 	return CRAF_OK;
 }
 
@@ -223,6 +237,8 @@ int main(int argc, char *argv[])
 	};
 	struct craf_driver_opts drv = {};
 	struct craf_key_opts keys = {};
+	struct craf_enc_opts enc;
+	struct craf_key_file kf = { "-enc-blob", NULL, -1 };
 	const char *cmd, *in_path = NULL, *out_path = NULL;
 	FILE *in = stdin, *out = stdout;
 	int opt, status;
@@ -241,6 +257,19 @@ int main(int argc, char *argv[])
 	if (strcmp(cmd, "-version") == 0 || strcmp(cmd, "version") == 0) {
 		version();
 		return CRAF_OK;
+	}
+	if (strcmp(cmd, "enc") == 0) {
+		status = craf_enc_parse(argc - 1, argv + 1, &enc);
+		if (status)
+			return status;
+		if (enc.help) {
+			usage(stdout);
+			return CRAF_OK;
+		}
+		in_path = enc.in;
+		out_path = enc.out;
+		craf_enc_key_file(&enc, &kf);
+		goto open;
 	}
 	if (strcmp(cmd, "seal") != 0 && strcmp(cmd, "unseal") != 0)
 		return craf_err(CRAF_USAGE, "unknown command \"%s\", see -help",
@@ -288,21 +317,25 @@ int main(int argc, char *argv[])
 	status = check_options(cmd, &drv, &keys);
 	if (status)
 		return status;
+	kf.path = keys.enc_blob;
 
+open:
 	if (in_path) {
 		in = fopen(in_path, "r");
 		if (!in)
 			return craf_err(CRAF_FAILED, "cannot open %s: %m",
 					in_path);
 	}
-	status = check_blob_output(keys.enc_blob, out_path);
+	status = check_key_output(&kf, out_path);
 	if (status)
 		return status;
 	status = open_output(out_path, in, &out);
 	if (status)
 		return status;
 
-	if (strcmp(cmd, "seal") == 0)
+	if (strcmp(cmd, "enc") == 0)
+		status = craf_enc(in, out, &enc);
+	else if (strcmp(cmd, "seal") == 0)
 		status = craf_seal(in, out, &drv, &keys);
 	else
 		status = craf_unseal(in, out, &drv, &keys);

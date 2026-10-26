@@ -1,7 +1,8 @@
 TARGET = crypto-afalg
 OBJS = crypto-afalg.o crypto-cipher.o crypto-hash.o
 CRAF = craf
-CRAF_OBJS = craf.o craf-archive.o craf-keys.o craf-driver.o craf-seal.o
+CRAF_OBJS = craf.o craf-archive.o craf-keys.o craf-driver.o craf-seal.o \
+	craf-enc.o
 KC = libkcrypto.so.0
 KC_OBJS = lib/kc-error.o lib/kc-driver.o lib/kc-key.o lib/kc-hash.o \
 	lib/kc-cipher.o lib/kc-openssl.o lib/backend/kc-afalg.o
