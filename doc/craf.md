@@ -1,6 +1,6 @@
 # craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it. The cipher runs in the kernel through `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key does not pass through craf's memory. craf therefore needs a kernel 6.2 or newer with `KEYS`, and a build with `ALG_SET_KEY_BY_KEY_SERIAL`: without them every seal and unseal exits with status 3.
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it. The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key does not pass through craf's memory. craf therefore needs a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -46,7 +46,7 @@ The archive format, version 1, integers little-endian, a string being its length
 
 The first 12 bytes, `magic`, `version` and `hdr_len`, keep their place in every version, so that a reader tells an archive of another version from something else.
 
-The tests of craf need `keyctl`, `openssl` and `cbc(aes)` in the kernel; without them they are `Skipped`. They use the driver `-cipher-algo` chooses, or the one `CRAF_TEST_DRIVER` names, for a kernel whose preferred driver cannot be used through `AF_ALG`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED` (on a TPM 2.0 the parent key, for example `keyhandle=0x81000001`): without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure.
+The tests of craf need `keyctl`, `openssl` and `cbc(aes)` in the kernel; without them they are `Skipped`. They use the driver `-cipher-algo` chooses, or the one `CRAF_TEST_DRIVER` names, for a kernel whose preferred driver cannot be used through `AF_ALG`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED` (on a TPM 2.0 the parent key, for example `keyhandle=0x81000001`): without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure. libkcrypto's test of trusted key blobs (`[blob-trusted]`) takes the same variable, in the same way.
 
 ## Known bugs
 

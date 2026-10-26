@@ -49,7 +49,7 @@ $ cd crypto-afalg
 $ make
 ```
 
-The build produces the tools, `crypto-afalg` and `craf`, and the shared libraries they use, `libkcrypto.so.0` (see [libkcrypto](#libkcrypto)) and `libafalg.so.0` (see [libafalg](#libafalg)). To run the tools from the build directory without installing them, tell the dynamic loader where the libraries are:
+The build produces the tools, `crypto-afalg` and `craf`, and the shared library they use, `libkcrypto.so.0` (see [libkcrypto](#libkcrypto)). To run the tools from the build directory without installing them, tell the dynamic loader where the library is:
 
 ```bash
 $ export LD_LIBRARY_PATH=$PWD
@@ -68,11 +68,11 @@ executing test0003.sh... aes-128-cbc [file-enc-dec]: OK.
 all tests are OK!
 ```
 
-To catch memory errors that do not change the output, run the tests with AddressSanitizer: `make tests ASAN=1` builds the tools and the libraries with `-fsanitize=address` (gcc and clang have it), and a test fails when AddressSanitizer reports an error. `make ASAN=1` builds them the same way.
+To catch memory errors that do not change the output, run the tests with AddressSanitizer: `make tests ASAN=1` builds the tools and the library with `-fsanitize=address` (gcc and clang have it), and a test fails when AddressSanitizer reports an error. `make ASAN=1` builds them the same way.
 
 If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm, or lacks something else the test needs (for craf, see below).
 
-The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(aes)` that the kernel prefers, the one `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`; the tests of `--force-driver` and of libkcrypto check it first, and a driver the kernel does not have, or one that is not of `cbc(aes)`, makes them fail instead of being `Skipped`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED`: on a TPM 2.0 the parent key, for example `make tests CRAF_TEST_TRUSTED=keyhandle=0x81000001`. Without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure.
+The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(aes)` that the kernel prefers, the one `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`; the tests of `--force-driver` and of libkcrypto check it first, and a driver the kernel does not have, or one that is not of `cbc(aes)`, makes them fail instead of being `Skipped`. The tests that use a trusted key, craf's `[trusted]` and libkcrypto's `[blob-trusted]`, create one with the options of `new` in `CRAF_TEST_TRUSTED`: on a TPM 2.0 the parent key, for example `make tests CRAF_TEST_TRUSTED=keyhandle=0x81000001`. Without the variable they are `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure.
 
 ## How to Install
 
@@ -80,7 +80,7 @@ The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(
 $ make install
 ```
 
-installs `crypto-afalg` and `craf` into `PREFIX` (default `/usr/bin`), the libraries `libkcrypto.so.0` and `libafalg.so.0` and their link-time names `libkcrypto.so` and `libafalg.so` into `LIBDIR` (default `/usr/lib`), and the headers `kcrypto.h` and `afalg.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files.
+installs `crypto-afalg` and `craf` into `PREFIX` (default `/usr/bin`), the library `libkcrypto.so.0` and its link-time name `libkcrypto.so` into `LIBDIR` (default `/usr/lib`), and the header `kcrypto.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files, and also `libafalg.so.0`, `libafalg.so` and `afalg.h`, which the versions up to v1.3.0 installed and libkcrypto replaces.
 
 `LIBDIR` must be a directory the dynamic loader searches: after installing into one it finds only through its cache, such as `/usr/local/lib`, run `ldconfig` as root.
 
@@ -258,11 +258,7 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## libkcrypto
 
-`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg is built on it. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
-
-## libafalg
-
-`libafalg.so.0` is the `AF_ALG` socket layer that craf still uses, as a shared library for other tools too. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libafalg.md](doc/libafalg.md).
+`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg and craf are built on it. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
 
 ## craf
 
