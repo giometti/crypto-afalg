@@ -215,9 +215,14 @@ int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 			goto out;
 	} while (n > 0);
 
-	if (kc_cipher_final(c, plain, &len, &e))
+	/*
+	 * A wrong length still gives the last whole block, which goes out
+	 * before the refusal; the refusal is then the exit status.
+	 */
+	if (kc_cipher_final(c, plain, &len, &e)) {
+		write_output(out, plain, len);	/* intentionally ignored */
 		status = cipher_err(&e);
-	else
+	} else
 		status = write_output(out, plain, len);
 out:
 	kc_cipher_free(c);

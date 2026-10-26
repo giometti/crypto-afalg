@@ -301,11 +301,11 @@ static int cipher(const char *dir, const char *name, const char *key,
 			put(out, len);
 		free(out);
 	}
+	/* What a refusing final gives goes out too, as the tools write it */
 	if (!status) {
 		out = xmalloc(iv_len);
 		status = kc_cipher_final(c, out, &len, e);
-		if (!status)
-			put(out, len);
+		put(out, len);
 		free(out);
 	}
 	kc_cipher_free(c);

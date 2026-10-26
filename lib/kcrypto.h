@@ -184,9 +184,11 @@ extern int kc_pbkdf2(const char *hmac, const void *pass, size_t pass_len,
  * decryption it holds the last block back. kc_cipher_final() writes the
  * rest, at most iv_len bytes: in encryption the padded last block, in
  * decryption the last block without its padding, or KC_REFUSED when the
- * length or the padding is wrong ("bad decrypt"); what was already written
- * is then to be discarded. kc_cipher_final(), and a call that fails, end
- * the cipher: after them, only kc_cipher_free().
+ * length or the padding is wrong ("bad decrypt"): with a wrong length it
+ * still writes the last whole block, as openssl does, and out_len says so;
+ * in decryption out_len is 0 on any other failure. What was written, by
+ * the refusing call too, is then to be discarded. kc_cipher_final(), and a
+ * call that fails, end the cipher: after them, only kc_cipher_free().
  */
 struct kc_cipher;
 

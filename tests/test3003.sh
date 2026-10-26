@@ -54,9 +54,13 @@ openssl enc -aes-256-cbc -K $key -iv $iv < $NAME.in > $NAME.enc
 head -c 4999 $NAME.enc > $NAME.trunc
 : > $NAME.empty
 for f in $NAME.trunc $NAME.empty; do
-	kc-check cipher dec "$cbc" hex:$key $iv < $f > /dev/null \
+	kc-check cipher dec "$cbc" hex:$key $iv < $f > $NAME.out \
 		2> $NAME.err && fail=y
 	grep -qxF "$bad" $NAME.err || fail=y
+	# Every whole block, as openssl writes it before refusing
+	openssl enc -d -aes-256-cbc -K $key -iv $iv < $f > $NAME.ref \
+		2> /dev/null && fail=y
+	cmp $NAME.ref $NAME.out || fail=y
 done
 for last in 00 11 0203 01020303; do
 	printf 'x%.0s' $(seq $((32 - ${#last} / 2))) > $NAME.plain

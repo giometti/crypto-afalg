@@ -182,9 +182,16 @@ KC_EXPORT int kc_cipher_final(struct kc_cipher *c, void *out,
 		return status ? status : kc_ok(e);
 	}
 
-	if (c->part_len > 0 || !c->have_held)
+	/* As openssl, every whole block goes out before the refusal */
+	if (c->part_len > 0 || !c->have_held) {
+		if (c->have_held) {
+			memcpy(out, c->held, c->block);
+			*out_len = c->block;
+			c->have_held = false;
+		}
 		return kc_fail(e, KC_REFUSED, 0,
 			       "bad decrypt (wrong final block length)");
+	}
 
 	/* PKCS#7, with no exit at the first wrong byte: no timing to read */
 	pad = c->held[c->block - 1];

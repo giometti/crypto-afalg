@@ -24,15 +24,27 @@ for len in 0 11 $((hdr_len - 1)); do
 	head -c $len $NAME.good > $NAME.craf
 	craf_expect 1 'truncated header' $NAME.craf unseal -enc-key $good
 done
+# The output is every whole block, as openssl writes it before refusing
+iv=$(od -An -tx1 -v -j$((hdr_len - 16)) -N16 $NAME.good | tr -d ' \n')
+whole () {
+	tail -c +$((hdr_len + 1)) $NAME.craf > $NAME.body
+	openssl enc -d -aes-256-cbc -K $CRAF_KEY_GOOD -iv $iv \
+		< $NAME.body > $NAME.ref 2> /dev/null && fail=y
+	craf unseal -enc-key $good < $NAME.craf > $NAME.out 2> /dev/null &&
+		fail=y
+	cmp $NAME.ref $NAME.out || fail=y
+}
 for len in $hdr_len $((hdr_len + 15)) $((size - 1)); do
 	head -c $len $NAME.good > $NAME.craf
 	craf_expect 1 'bad decrypt (wrong final block length)' $NAME.craf \
 		unseal -enc-key $good
+	whole
 done
 cp $NAME.good $NAME.craf
 printf 'x' >> $NAME.craf
 craf_expect 1 'bad decrypt (wrong final block length)' $NAME.craf \
 	unseal -enc-key $good
+whole
 
 # Cut by whole blocks: the last byte left is one of the input, not padding
 for len in $((size - 16)) $((size - 32)); do
