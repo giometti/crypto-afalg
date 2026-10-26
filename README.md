@@ -146,7 +146,7 @@ NOTE: keyring key can be:
         <keyring> @u (user, the default) or @s (session)
 ```
 
-Note that, if your system does not support symmetric encryption via keyring keys (see the define `ALG_SET_KEY_BY_KEY_SERIAL`), the `-S|--keyserial` option will not be shown.
+Note that the `-S|--keyserial` option is shown only when libkcrypto takes keyring keys, which it does when it was built with an `<linux/if_alg.h>` that defines `ALG_SET_KEY_BY_KEY_SERIAL`; up to v1.3.0 the headers crypto-afalg itself was built with decided it.
 
 A serial is a positive decimal number, digits only. The keyring of a symbolic name is `@u` (also `user`, the default) or `@s` (also `session`), named exactly; with two commas the first field is the keyring, so a description with a comma needs the keyring (`user,a,b` is the key of type `a` and description `b` in `@u`). The search for a symbolic name also looks into the keyrings linked to the one named, and a description that two keys hold there is refused instead of taking the first found; a key in a keyring that you can search but not read is not counted. Up to v1.1.0 crypto-afalg accepted a serial followed by other characters, a negative or too large one, a prefix of a keyring name, and took the first of two keys with the same description: such specs are now refused.
 
