@@ -120,10 +120,16 @@ extern int kc_key_raw(struct kc_key **k, const void *data, size_t len,
  * the keyring being @u (also "user", the default) or @s (also
  * "session"). With two commas the first field is the keyring, so a
  * description with a comma needs the keyring. A serial is taken as it
- * is, not looked up; a description is refused when more than one key
- * holds it in the keyrings the caller can read. What is opened with a
- * keyring key is KC_FAILED where kc_key_serial_supported() is 0
- * (EOPNOTSUPP) or the kernel is older than Linux 6.2 (its errno).
+ * is, not looked up. A description that the kernel's search finds in more
+ * than one key of the keyrings the caller can read is KC_USAGE
+ * (ENOTUNIQ): where the kernel compares descriptions as strings, the
+ * library does the same; where it does not (an asymmetric key by "id:"),
+ * the library asks the kernel, and a key it cannot ask about, as one it
+ * may not link, makes the answer unknown. That, and a key of the keyrings
+ * that cannot be described, is KC_FAILED with its errno, never a pass.
+ * What is opened with a keyring key is KC_FAILED where
+ * kc_key_serial_supported() is 0 (EOPNOTSUPP) or the kernel is older than
+ * Linux 6.2 (its errno).
  */
 extern int kc_key_spec(struct kc_key **k, const char *spec,
 		       struct kc_error *e);

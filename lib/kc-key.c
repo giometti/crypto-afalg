@@ -26,12 +26,72 @@
 #include "kc-internal.h"
 #include "kc-backend.h"
 
-/* What a keyring search looked for, and the key it found */
+/*
+ * What a keyring search looked for and the key it found; whether the
+ * kernel compares that description as a string; a keyring of the
+ * library's own to ask the kernel in, made at the first key to ask about;
+ * and the first key the library could not examine, with why
+ */
 struct key_match {
 	const char *type;
 	const char *desc;
+	bool by_string;
 	key_serial_t found;
+	key_serial_t probe;
+	char probe_desc[32];
+	int probe_err;
+	key_serial_t unchecked;
+	int err;
 };
+
+/*
+ * The types whose search compares other than the description with
+ * strcmp(), from their match_preparse() in the kernel (Linux 6.18): with
+ * one of the prefixes, or with any description when there are none. Any
+ * other type, and these with another description, the kernel compares by
+ * key_default_cmp(), as a string.
+ */
+static const struct {
+	const char *type;
+	const char *prefixes[4];
+} other_match_types[] = {
+	{ "asymmetric",		{ "id:", "ex:", "dn:", NULL } },
+	{ "dns_resolver",	{ NULL } },
+	{ "psk",		{ NULL } },
+};
+
+static bool matched_by_string(const char *type, const char *desc)
+{
+	size_t i, j;
+
+	for (i = 0; i < sizeof(other_match_types) /
+			sizeof(other_match_types[0]); i++) {
+		if (strcmp(type, other_match_types[i].type) != 0)
+			continue;
+		if (!other_match_types[i].prefixes[0])
+			return false;
+		for (j = 0; other_match_types[i].prefixes[j]; j++)
+			if (strncmp(desc, other_match_types[i].prefixes[j],
+				    strlen(other_match_types[i].prefixes[j])) == 0)
+				return false;
+	}
+	return true;
+}
+
+/* errnos of a key the kernel's search passes over: not a match */
+static bool search_skips(int err)
+{
+	return err == ENOKEY || err == EKEYEXPIRED || err == EKEYREVOKED;
+}
+
+/* The first key that could not be examined is the one told */
+static void unchecked(struct key_match *m, key_serial_t key, int err)
+{
+	if (!m->unchecked) {
+		m->unchecked = key;
+		m->err = err;
+	}
+}
 
 /* The keyrings a spec may name, each by one of two exact names */
 static const struct {
@@ -77,31 +137,74 @@ static bool parse_serial(const char *s, key_serial_t *id)
 }
 
 /*
- * One more key of the type and description searched, besides the one
- * found: desc is "<type>;<uid>;<gid>;<perm>;<description>"
+ * One more key that the search finds, besides the one found: desc is
+ * "<type>;<uid>;<gid>;<perm>;<description>", NULL when it could not be
+ * read. A description the kernel compares as a string is compared here;
+ * otherwise the kernel is asked, by searching the probe with only that
+ * key linked into it. A key that cannot be examined is told after the
+ * scan, which still counts the keys found twice.
  */
 static int other_match(key_serial_t parent, key_serial_t key, char *desc,
 		       int desc_len, void *data)
 {
-	const struct key_match *m = data;
+	struct key_match *m = data;
 	size_t tlen = strlen(m->type);
-	char *p, *end;
-	int i;
+	char *buf, *p, *end;
+	long found;
+	int i, err, ret;
 
-	if (!desc || key == m->found)
+	if (key == m->found)
 		return 0;
-	p = desc;
-	end = desc + desc_len;
-	if ((size_t) desc_len <= tlen || memcmp(p, m->type, tlen) != 0 ||
-	    p[tlen] != ';')
-		return 0;
-	for (i = 0; i < 4; i++) {
-		p = memchr(p, ';', end - p);
-		if (!p)
+	if (!desc) {
+		if (keyctl_describe_alloc(key, &buf) < 0) {
+			if (!search_skips(errno))
+				unchecked(m, key, errno);
 			return 0;
-		p++;
+		}
+		ret = other_match(parent, key, buf, strlen(buf), data);
+		free(buf);
+		return ret;
 	}
-	return is_name(p, end - p, m->desc);
+	if ((size_t) desc_len <= tlen || memcmp(desc, m->type, tlen) != 0 ||
+	    desc[tlen] != ';')
+		return 0;
+	if (m->by_string) {
+		p = desc;
+		end = desc + desc_len;
+		for (i = 0; i < 4; i++) {
+			p = memchr(p, ';', end - p);
+			if (!p)
+				return 0;
+			p++;
+		}
+		return is_name(p, end - p, m->desc);
+	}
+
+	if (m->probe_err) {
+		unchecked(m, key, m->probe_err);
+		return 0;
+	}
+	if (!m->probe) {
+		m->probe = add_key("keyring", m->probe_desc, NULL, 0,
+				   KEY_SPEC_THREAD_KEYRING);
+		if (m->probe < 0) {
+			m->probe = 0;
+			m->probe_err = errno;
+			unchecked(m, key, errno);
+			return 0;
+		}
+	}
+	if (keyctl_link(key, m->probe) < 0) {
+		unchecked(m, key, errno);
+		return 0;
+	}
+	found = keyctl_search(m->probe, m->type, m->desc, 0);
+	err = errno;
+	if (found < 0 && !search_skips(err) && err != EACCES)
+		unchecked(m, key, err);
+	if (keyctl_unlink(key, m->probe) < 0)
+		unchecked(m, key, errno);
+	return found == key;
 }
 
 static int new_key(struct kc_key **k, size_t len, struct kc_error *e)
@@ -134,7 +237,7 @@ KC_EXPORT int kc_key_spec(struct kc_key **k, const char *spec,
 	struct key_match m;
 	key_serial_t keyring_id, num;
 	char type[64];
-	int i, err, status;
+	int i, n, err, status;
 
 	*k = NULL;
 
@@ -192,15 +295,32 @@ KC_EXPORT int kc_key_spec(struct kc_key **k, const char *spec,
 	/*
 	 * The search descends into the keyrings linked to this one and takes
 	 * the first key it meets, so a name held twice is refused. Only the
-	 * keyrings the caller can read are counted.
+	 * keyrings the caller can read are counted; the probe is unique while
+	 * m lives, as the keys of kc_key_blob() are.
 	 */
+	memset(&m, 0, sizeof(m));
 	m.type = type;
 	m.desc = pdesc;
+	m.by_string = matched_by_string(type, pdesc);
 	m.found = num;
-	if (recursive_key_scan(keyring_id, other_match, &m) > 0)
+	snprintf(m.probe_desc, sizeof(m.probe_desc), "kcrypto:%p",
+		 (void *) &m);
+	n = recursive_key_scan(keyring_id, other_match, &m);
+	if (m.probe)
+		keyctl_invalidate(m.probe);	/* intentionally ignored */
+	if (n > 0)
 		return kc_fail(e, KC_USAGE, ENOTUNIQ,
 			       "more than one %s key %s in keyring %s",
 			       type, pdesc, keyrings[i].shown);
+	if (m.probe_err)
+		return kc_fail(e, KC_FAILED, m.probe_err,
+			       "cannot make a keyring to search in: %s",
+			       strerror(m.probe_err));
+	if (m.unchecked)
+		return kc_fail(e, KC_FAILED, m.err,
+			       "cannot tell whether the key %d is also %s key "
+			       "%s: %s", m.unchecked, type, pdesc,
+			       strerror(m.err));
 
 found:
 	status = new_key(k, 0, e);
