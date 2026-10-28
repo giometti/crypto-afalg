@@ -32,7 +32,7 @@ To build and run this project, you need:
   * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf seal and unseal) need **Kernel 6.2 or newer** with `KEYS` support.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
-  * The keyutils library and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
+  * The keyutils library, 1.6 or newer, and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
   * git, used by the build to compute the version string.
   * bash, for the version helper and the tests.
   * binutils (`readelf`, `nm`), for the tests.
