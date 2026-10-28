@@ -46,7 +46,8 @@ static void __attribute__((noreturn)) usage(void)
 		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
 		"    the digest in hex on stdout; <key> is - for none,\n"
-		"    hex:<bytes>, spec:<spec> or blob:<trusted key blob>\n"
+		"    hex:<bytes>, spec:<spec>, blob:<trusted key blob> or\n"
+		"    cert:<file of a DER certificate>\n"
 		"  hash-after <name> <room> final|update: after a final with\n"
 		"    room bytes, the status of one more call\n"
 		"  cipher enc|dec <name> <key> <iv>: stdin in pieces of many\n"
@@ -66,6 +67,12 @@ static void __attribute__((noreturn)) usage(void)
 		"  openssl-dec <name> <pass> <iter> <key-len> <iv-len>:\n"
 		"    the file of openssl enc -pbkdf2 on stdin, decrypted\n"
 		"  header-make <salt>: the header on stdout\n"
+		"  pkey-query <key> <params>: prints the operations, the\n"
+		"    size of the key, the largest data, signature,\n"
+		"    encrypted and decrypted sizes and how many reserved\n"
+		"    fields are not 0\n"
+		"  pkey-verify <key> <params> <digest file> <signature file>\n"
+		"  (for pkey-*, <params> \"-\" is NULL)\n"
 		"exhaust: no file descriptor left before the command\n"
 		"exit status: the kc_status, %d for a wrong command line\n",
 		EXIT_USAGE);
@@ -145,10 +152,32 @@ static size_t parse_hex(const char *s, unsigned char *buf, size_t size)
 	return len;
 }
 
-/* "-", "hex:<bytes>", "spec:<spec>" or "blob:<bytes>": NULL for none */
+/* A whole file, of at most size bytes, or the end of kc-check */
+static size_t read_file(const char *path, unsigned char *buf, size_t size)
+{
+	FILE *f = fopen(path, "r");
+	size_t len;
+
+	if (!f) {
+		perror(path);
+		exit(EXIT_USAGE);
+	}
+	len = fread(buf, 1, size, f);
+	if (ferror(f) || !feof(f) || fgetc(f) != EOF) {
+		fprintf(stderr, "kc-check: %s: unreadable or too long\n", path);
+		exit(EXIT_USAGE);
+	}
+	fclose(f);
+	return len;
+}
+
+/*
+ * "-", "hex:<bytes>", "spec:<spec>", "blob:<bytes>" or "cert:<file>": NULL
+ * for none
+ */
 static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 {
-	unsigned char buf[1024];
+	unsigned char buf[1024], der[16384];
 
 	*k = NULL;
 	if (strcmp(arg, "-") == 0)
@@ -160,6 +189,9 @@ static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 		return kc_key_spec(k, arg + 5, e);
 	if (strncmp(arg, "blob:", 5) == 0)
 		return kc_key_blob(k, buf, parse_hex(arg + 5, buf, sizeof(buf)),
+				   e);
+	if (strncmp(arg, "cert:", 5) == 0)
+		return kc_key_cert(k, der, read_file(arg + 5, der, sizeof(der)),
 				   e);
 	usage();
 }
@@ -521,6 +553,63 @@ static int header_make(const char *salt_hex)
 	return KC_OK;
 }
 
+/* "-" stands for NULL, which a command line cannot give */
+static const char *pkey_params(const char *params)
+{
+	return strcmp(params, "-") == 0 ? NULL : params;
+}
+
+static int pkey_query(const char *key, const char *params,
+		      struct kc_error *e)
+{
+	struct kc_pkey_info info;
+	struct kc_key *k;
+	size_t i, set;
+	int status;
+
+	/* What the library leaves unwritten shows as not 0 */
+	memset(&info, 0xff, sizeof(info));
+	status = make_key(key, &k, e);
+	if (!status)
+		status = kc_pkey_query(k, pkey_params(params), &info, e);
+	if (!status) {
+		for (i = set = 0; i < sizeof(info.reserved) /
+					  sizeof(info.reserved[0]); i++)
+			set += info.reserved[i] != 0;
+		printf("%#x %u %zu %zu %zu %zu %zu\n", info.ops, info.key_size,
+		       info.max_data, info.max_sig, info.max_enc,
+		       info.max_dec, set);
+	}
+	kc_key_free(k);
+	return status;
+}
+
+/* Exactly the length of each file, for AddressSanitizer */
+static int pkey_verify(const char *key, const char *params,
+		       const char *digest_file, const char *sig_file,
+		       struct kc_error *e)
+{
+	unsigned char buf[4096], *digest, *sig;
+	size_t digest_len, sig_len;
+	struct kc_key *k;
+	int status;
+
+	digest_len = read_file(digest_file, buf, sizeof(buf));
+	digest = xmalloc(digest_len + 1);
+	memcpy(digest, buf, digest_len);
+	sig_len = read_file(sig_file, buf, sizeof(buf));
+	sig = xmalloc(sig_len + 1);
+	memcpy(sig, buf, sig_len);
+	status = make_key(key, &k, e);
+	if (!status)
+		status = kc_pkey_verify(k, pkey_params(params), digest,
+					digest_len, sig, sig_len, e);
+	kc_key_free(k);
+	free(sig);
+	free(digest);
+	return status;
+}
+
 static int hash_after(const char *name, size_t room, const char *then,
 		      struct kc_error *e)
 {
@@ -622,6 +711,10 @@ int main(int argc, char *argv[])
 		status = cipher(argv[2], argv[3], argv[4], argv[5], &e);
 	else if (strcmp(argv[1], "cipher-after") == 0 && argc == 6)
 		status = cipher_after(argv[2], argv[3], argv[4], argv[5], &e);
+	else if (strcmp(argv[1], "pkey-query") == 0 && argc == 4)
+		status = pkey_query(argv[2], argv[3], &e);
+	else if (strcmp(argv[1], "pkey-verify") == 0 && argc == 6)
+		status = pkey_verify(argv[2], argv[3], argv[4], argv[5], &e);
 	else if (strcmp(argv[1], "hash") == 0 && (argc == 4 || argc == 5))
 		status = hash(argv[2], argv[3],
 			      argc == 5 ? strtoul(argv[4], NULL, 10) :

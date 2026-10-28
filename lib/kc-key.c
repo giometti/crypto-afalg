@@ -211,14 +211,45 @@ found:
 	return kc_ok(e);
 }
 
+/*
+ * A key of type into the keyring of the calling thread, described by the
+ * address of its struct kc_key, unique while it lives: no two live keys
+ * of a thread share a description, which the kernel would refuse for a
+ * trusted key and settle for an asymmetric one by putting the second in
+ * the place of the first
+ */
+static int load_key(struct kc_key **k, const char *type, const void *payload,
+		    size_t len, const char *what, struct kc_error *e)
+{
+	char desc[32];
+	int err, status;
+
+	status = new_key(k, 0, e);
+	if (status)
+		return status;
+	snprintf(desc, sizeof(desc), "kcrypto:%p", (void *) *k);
+	(*k)->serial = add_key(type, desc, payload, len,
+			       KEY_SPEC_THREAD_KEYRING);
+	if ((*k)->serial < 0) {
+		err = errno;
+		free(*k);
+		*k = NULL;
+		return kc_fail(e, KC_FAILED, err, "cannot load %s: %s", what,
+			       strerror(err));
+	}
+	(*k)->type = KC_KEY_SERIAL;
+	(*k)->loaded = true;
+	return kc_ok(e);
+}
+
 KC_EXPORT int kc_key_blob(struct kc_key **k, const void *blob, size_t len,
 			  struct kc_error *e)
 {
 	static const char digits[] = "0123456789abcdef";
 	const unsigned char *b = blob;
-	char desc[32], *payload;
 	size_t plen = strlen("load "), i;
-	int err, status;
+	char *payload;
+	int status;
 
 	*k = NULL;
 	if (len == 0)
@@ -233,33 +264,20 @@ KC_EXPORT int kc_key_blob(struct kc_key **k, const void *blob, size_t len,
 		payload[plen++] = digits[b[i] >> 4];
 		payload[plen++] = digits[b[i] & 0xf];
 	}
-
-	/*
-	 * A second key with the description of one in the keyring is
-	 * refused: the address of the key, unique while it lives, tells
-	 * apart the keys of one thread
-	 */
-	status = new_key(k, 0, e);
-	if (!status) {
-		snprintf(desc, sizeof(desc), "kcrypto:%p", (void *) *k);
-		(*k)->serial = add_key("trusted", desc, payload, plen,
-				       KEY_SPEC_THREAD_KEYRING);
-		err = errno;
-		if ((*k)->serial < 0) {
-			free(*k);
-			*k = NULL;
-			status = kc_fail(e, KC_FAILED, err,
-					 "cannot load the trusted key blob: %s",
-					 strerror(err));
-		}
-	}
+	status = load_key(k, "trusted", payload, plen, "the trusted key blob",
+			  e);
 	explicit_bzero(payload, plen);
 	free(payload);
-	if (status)
-		return status;
-	(*k)->type = KC_KEY_SERIAL;
-	(*k)->loaded = true;
-	return kc_ok(e);
+	return status;
+}
+
+KC_EXPORT int kc_key_cert(struct kc_key **k, const void *der, size_t len,
+			  struct kc_error *e)
+{
+	*k = NULL;
+	if (len == 0)
+		return kc_fail(e, KC_USAGE, EINVAL, "empty certificate");
+	return load_key(k, "asymmetric", der, len, "the certificate", e);
 }
 
 KC_EXPORT int kc_key_unload(struct kc_key *k, struct kc_error *e)

@@ -143,20 +143,32 @@ extern int kc_key_serial_supported(void);
  * and used by its serial, as a keyring key. Use it, and free it, in that
  * thread.
  * kc_key_unload() takes it out of the keyring at once, KC_FAILED when
- * the kernel refuses (KC_OK for any other key); kc_key_free() takes it
- * out too, if it is still there, saying nothing of a failure.
+ * the kernel refuses (KC_OK for a key the library did not load);
+ * kc_key_free() takes it out too, if it is still there, saying nothing of
+ * a failure.
  */
 extern int kc_key_blob(struct kc_key **k, const void *blob, size_t len,
 		       struct kc_error *e);
 extern int kc_key_unload(struct kc_key *k, struct kc_error *e);
 
+/*
+ * An X.509 certificate, DER, as an asymmetric keyring key for
+ * kc_pkey_*(), loaded and unloaded as by kc_key_blob(): KC_FAILED, with
+ * the kernel's errno, when the kernel refuses it, as it does what is not
+ * a certificate, a key of an algorithm it lacks, and a self-signed one
+ * whose signature does not hold. It checks the signature of no other
+ * certificate: trusting the key is the caller's.
+ */
+extern int kc_key_cert(struct kc_key **k, const void *der, size_t len,
+		       struct kc_error *e);
+
 /* The serial of a keyring key, 0 for raw bytes */
 extern int32_t kc_key_serial(const struct kc_key *k);
 
 /*
- * Clears raw bytes and frees; a key of kc_key_blob() still loaded is
- * taken out of the keyring first, in the thread that loaded it only,
- * saying nothing of a failure. NULL is ignored.
+ * Clears raw bytes and frees; a key of kc_key_blob() or kc_key_cert()
+ * still loaded is taken out of the keyring first, in the thread that
+ * loaded it only, saying nothing of a failure. NULL is ignored.
  */
 extern void kc_key_free(struct kc_key *k);
 
@@ -218,6 +230,52 @@ extern int kc_cipher_final(struct kc_cipher *c, void *out, size_t *out_len,
 
 /* Clears and frees; NULL is ignored */
 extern void kc_cipher_free(struct kc_cipher *c);
+
+/*
+ * An asymmetric keyring key, by its serial, with the parameters of keyctl
+ * (as "enc=pkcs1 hash=sha256"), which the kernel reads: it never gives
+ * the key out. kc_pkey_query() says what the key can do with them, the
+ * sizes in bytes, the key's in bits; KC_FAILED when the kernel refuses
+ * the key or the parameters, as an unknown enc= or hash=, or a key that
+ * is not asymmetric; KC_USAGE (EINVAL) for a key that is not a keyring
+ * key, for params or info NULL.
+ * kc_pkey_verify() checks a signature of a digest: it queries the key
+ * with the same parameters first, so that a refusal of them is KC_FAILED,
+ * not taken for a forged signature, as are a key that cannot verify
+ * (EOPNOTSUPP) and the failures of the query. A digest of 0 bytes or
+ * longer than the key takes is KC_USAGE (EINVAL), and so is a signature
+ * of 0 bytes; a longer signature than the key's is KC_REFUSED, and so is
+ * what the kernel refuses with EKEYREJECTED, EBADMSG or EINVAL, which it
+ * gives for a signature that does not hold. Its answer is only as good as
+ * the digest: computed with the hash that hash= names, of the data that
+ * were signed, which the kernel cannot check.
+ */
+#define KC_PKEY_ENCRYPT		0x01
+#define KC_PKEY_DECRYPT		0x02
+#define KC_PKEY_SIGN		0x04
+#define KC_PKEY_VERIFY		0x08
+
+/*
+ * The caller allocates it: a change of its size or of its layout, or of
+ * the values of KC_PKEY_*, which are the kernel's KEYCTL_SUPPORTS_*,
+ * changes the ABI and so the soname, even before version 1.0. The library
+ * sets the reserved fields to 0; a later version may answer more there.
+ */
+struct kc_pkey_info {
+	unsigned int ops;	/* KC_PKEY_* */
+	unsigned int key_size;
+	size_t max_data;
+	size_t max_sig;
+	size_t max_enc;
+	size_t max_dec;
+	size_t reserved[8];
+};
+
+extern int kc_pkey_query(const struct kc_key *k, const char *params,
+			 struct kc_pkey_info *info, struct kc_error *e);
+extern int kc_pkey_verify(const struct kc_key *k, const char *params,
+			  const void *digest, size_t digest_len,
+			  const void *sig, size_t sig_len, struct kc_error *e);
 
 /*
  * The header openssl enc writes before what it encrypts with a passphrase

@@ -19,3 +19,13 @@ expect () {
 		fail=y
 	fi
 }
+
+# usage: flip <file> <offset>: inverts the lowest bit of the byte at
+# offset, so that the file changes whatever the byte was
+flip () {
+	local b
+
+	b=$(od -An -tu1 -j $2 -N1 $1)
+	printf "\\$(printf %03o $((b ^ 1)))" |
+		dd of=$1 bs=1 seek=$2 conv=notrunc 2> /dev/null
+}
