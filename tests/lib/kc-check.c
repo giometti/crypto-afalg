@@ -46,8 +46,9 @@ static void __attribute__((noreturn)) usage(void)
 		"  key-serial: 0 if the library takes keyring keys, 1 if not\n"
 		"  hash <name> <key> [<room>]: stdin in pieces of many sizes,\n"
 		"    the digest in hex on stdout; <key> is - for none,\n"
-		"    hex:<bytes>, spec:<spec>, blob:<trusted key blob> or\n"
-		"    cert:<file of a DER certificate>\n"
+		"    hex:<bytes>, spec:<spec>, blob:<trusted key blob>,\n"
+		"    cert:<file of a DER certificate> or pubkey:<file of a\n"
+		"    DER public key>\n"
 		"  hash-after <name> <room> final|update: after a final with\n"
 		"    room bytes, the status of one more call\n"
 		"  cipher enc|dec <name> <key> <iv>: stdin in pieces of many\n"
@@ -172,12 +173,12 @@ static size_t read_file(const char *path, unsigned char *buf, size_t size)
 }
 
 /*
- * "-", "hex:<bytes>", "spec:<spec>", "blob:<bytes>" or "cert:<file>": NULL
- * for none
+ * "-", "hex:<bytes>", "spec:<spec>", "blob:<bytes>", "cert:<file>" or
+ * "pubkey:<file>": NULL for none
  */
 static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 {
-	unsigned char buf[1024], der[16384];
+	unsigned char buf[1024], der[20000];
 
 	*k = NULL;
 	if (strcmp(arg, "-") == 0)
@@ -193,6 +194,9 @@ static int make_key(const char *arg, struct kc_key **k, struct kc_error *e)
 	if (strncmp(arg, "cert:", 5) == 0)
 		return kc_key_cert(k, der, read_file(arg + 5, der, sizeof(der)),
 				   e);
+	if (strncmp(arg, "pubkey:", 7) == 0)
+		return kc_key_pubkey(k, der, read_file(arg + 7, der,
+						       sizeof(der)), e);
 	usage();
 }
 

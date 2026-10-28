@@ -162,13 +162,27 @@ extern int kc_key_unload(struct kc_key *k, struct kc_error *e);
 extern int kc_key_cert(struct kc_key **k, const void *der, size_t len,
 		       struct kc_error *e);
 
+/*
+ * A public key, a DER SubjectPublicKeyInfo as openssl pkey -pubout
+ * -outform DER writes it, as an asymmetric keyring key, which the kernel
+ * takes only as a certificate: wrapped in one that is not self-signed,
+ * whose signature is none and which is valid from 1970 to 9999, then
+ * loaded as by kc_key_cert(). The certificate names an RSA signature, so
+ * the key is taken for RSA only. KC_USAGE when spki is not one DER
+ * SEQUENCE len bytes long, its length in DER's shortest form, in at most
+ * two bytes (EINVAL), or is longer than 16384 bytes (E2BIG).
+ */
+extern int kc_key_pubkey(struct kc_key **k, const void *spki, size_t len,
+			 struct kc_error *e);
+
 /* The serial of a keyring key, 0 for raw bytes */
 extern int32_t kc_key_serial(const struct kc_key *k);
 
 /*
- * Clears raw bytes and frees; a key of kc_key_blob() or kc_key_cert()
- * still loaded is taken out of the keyring first, in the thread that
- * loaded it only, saying nothing of a failure. NULL is ignored.
+ * Clears raw bytes and frees; a key of kc_key_blob(), kc_key_cert() or
+ * kc_key_pubkey() still loaded is taken out of the keyring first, in the
+ * thread that loaded it only, saying nothing of a failure. NULL is
+ * ignored.
  */
 extern void kc_key_free(struct kc_key *k);
 

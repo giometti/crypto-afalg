@@ -280,6 +280,23 @@ KC_EXPORT int kc_key_cert(struct kc_key **k, const void *der, size_t len,
 	return load_key(k, "asymmetric", der, len, "the certificate", e);
 }
 
+KC_EXPORT int kc_key_pubkey(struct kc_key **k, const void *spki, size_t len,
+			    struct kc_error *e)
+{
+	unsigned char *der;
+	size_t der_len;
+	int status;
+
+	*k = NULL;
+	status = kc_x509_wrap(spki, len, &der, &der_len, e);
+	if (status)
+		return status;
+	status = load_key(k, "asymmetric", der, der_len,
+			  "the certificate of the public key", e);
+	free(der);
+	return status;
+}
+
 KC_EXPORT int kc_key_unload(struct kc_key *k, struct kc_error *e)
 {
 	int err;

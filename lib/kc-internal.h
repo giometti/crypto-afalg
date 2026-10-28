@@ -31,4 +31,12 @@ extern int kc_fail(struct kc_error *e, enum kc_status status, int errnum,
 	__attribute__((format(printf, 4, 5)));
 extern int kc_ok(struct kc_error *e);
 
+/*
+ * A certificate around the public key spki, a DER SubjectPublicKeyInfo,
+ * that the kernel loads as an asymmetric key: into *der, of *der_len
+ * bytes, for the caller to free
+ */
+extern int kc_x509_wrap(const void *spki, size_t len, unsigned char **der,
+			size_t *der_len, struct kc_error *e);
+
 #endif /* KC_INTERNAL_H */
