@@ -146,24 +146,6 @@ static bool parse_count(const char *s, int base, long max, long *v)
 	return errno == 0 && *end == '\0' && *v >= 1 && *v <= max;
 }
 
-/* The option as typed, without its dashes and its "=value" */
-static bool typed_exactly(const char *arg, const char *name)
-{
-	size_t len;
-
-	arg += arg[1] == '-' ? 2 : 1;
-	len = strcspn(arg, "=");
-	return strlen(name) == len && strncmp(arg, name, len) == 0;
-}
-
-static bool exact_option(const struct option *options, const char *arg)
-{
-	for (; options->name; options++)
-		if (typed_exactly(arg, options->name))
-			return true;
-	return false;
-}
-
 /*
  * The descriptor of -pass fd:, checked before craf opens a file of its
  * own, which could take the number of one the caller forgot to give
@@ -236,7 +218,7 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 		if (opt < 0)
 			break;
 		/* getopt takes an abbreviation, openssl does not */
-		if (idx >= 0 && !typed_exactly(argv[prev], options[idx].name))
+		if (idx >= 0 && !craf_typed_exactly(argv[prev], options[idx].name))
 			opt = '?';
 		switch (opt) {
 		case 'd':
@@ -300,7 +282,7 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 					"enc: -%s is not supported by craf",
 					options[idx].name);
 		case ':':
-			if (exact_option(options, argv[prev]))
+			if (craf_exact_option(options, argv[prev]))
 				return craf_err(CRAF_USAGE,
 						"missing value for \"%s\"",
 						argv[prev]);
@@ -398,30 +380,6 @@ static size_t mode_of(const char *kname, const char **mode)
 	return p ? (size_t) (p - kname) : 0;
 }
 
-/* A driver given as -cipher-algo is told, not taken for a mode */
-static int check_algo_name(const char *kname)
-{
-	char algo[CRAF_STR_MAX + 1];
-	struct kc_error e;
-	int status;
-
-	status = kc_algo_listed("skcipher", kname, &e);
-	if (status == KC_OK)
-		return CRAF_OK;
-	if (status == KC_REFUSED) {
-		status = kc_driver_algo("skcipher", kname, algo, sizeof(algo),
-					&e);
-		if (status == KC_OK)
-			return craf_err(CRAF_USAGE, "-cipher-algo \"%s\" is a "
-					"driver of %s: give it with "
-					"-cipher-driver", kname, algo);
-		/* Listed as neither: left to the kernel to refuse */
-		if (status == KC_REFUSED)
-			return CRAF_OK;
-	}
-	return craf_err(CRAF_FAILED, "enc: %s", e.msg);
-}
-
 /*
  * The one place where the shape of the cipher is chosen, from its mode
  * and the sizes the kernel gives: a mode the format has no room for is a
@@ -459,7 +417,8 @@ static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
 				CRAF_FAILED, "enc: %s", e.msg);
 	}
 	if (o->cipher_algo && !o->cipher_driver) {
-		status = check_algo_name(o->kname);
+		status = craf_check_algo_name("enc", "skcipher", "-cipher-algo",
+					      o->kname, "-cipher-driver");
 		if (status)
 			return status;
 	}

@@ -45,6 +45,11 @@ static void usage(FILE *f)
 		"       [ -cipher-driver <driver> ]\n"
 		"      decrypt a file of openssl enc -pbkdf2, e.g. -aes-256-cbc;\n"
 		"      <source> is pass:<text>, file:<file>, env:<name> or fd:<n>\n"
+		"  dgst [ -<hash> | -digest-algo <hash> ] [ -hex | -binary ]\n"
+		"       [ <file>... ]\n"
+		"      the digest of each file, or of stdin, as openssl dgst;\n"
+		"      -sha256 when not given; -<hash> as openssl names it,\n"
+		"      -digest-algo <hash> as the kernel does\n"
 		"where:\n"
 		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce;\n"
 		"        for enc, of the cipher given\n"
@@ -83,6 +88,25 @@ int craf_check_driver_name(const char *name)
 					"-cipher-driver: \"%s\" is not printable ASCII",
 					name);
 	return CRAF_OK;
+}
+
+/* The option as typed, without its dashes and its "=value" */
+bool craf_typed_exactly(const char *arg, const char *name)
+{
+	size_t len;
+
+	arg += arg[1] == '-' ? 2 : 1;
+	len = strcspn(arg, "=");
+	return strlen(name) == len && strncmp(arg, name, len) == 0;
+}
+
+/* Whether arg is one of options, typed in full */
+bool craf_exact_option(const struct option *options, const char *arg)
+{
+	for (; options->name; options++)
+		if (craf_typed_exactly(arg, options->name))
+			return true;
+	return false;
 }
 
 static int check_options(const char *cmd, const struct craf_driver_opts *drv,
@@ -238,6 +262,7 @@ int main(int argc, char *argv[])
 	struct craf_driver_opts drv = {};
 	struct craf_key_opts keys = {};
 	struct craf_enc_opts enc;
+	struct craf_dgst_opts dgst;
 	struct craf_key_file kf = { "-enc-blob", NULL, -1 };
 	const char *cmd, *in_path = NULL, *out_path = NULL;
 	FILE *in = stdin, *out = stdout;
@@ -270,6 +295,16 @@ int main(int argc, char *argv[])
 		out_path = enc.out;
 		craf_enc_key_file(&enc, &kf);
 		goto open;
+	}
+	if (strcmp(cmd, "dgst") == 0) {
+		status = craf_dgst_parse(argc - 1, argv + 1, &dgst);
+		if (status)
+			return status;
+		if (dgst.help) {
+			usage(stdout);
+			return CRAF_OK;
+		}
+		return craf_dgst(&dgst);
 	}
 	if (strcmp(cmd, "seal") != 0 && strcmp(cmd, "unseal") != 0)
 		return craf_err(CRAF_USAGE, "unknown command \"%s\", see -help",

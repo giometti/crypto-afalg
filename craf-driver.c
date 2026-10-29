@@ -94,3 +94,35 @@ int craf_driver_for_algo(const char *algo, char *driver)
 		return driver_err("cipher_algo", algo, &e);
 	return CRAF_OK;
 }
+
+/*
+ * A name given where the name of an algorithm is expected, as of
+ * -cipher-algo: a driver is told, with the algorithm it is a driver of
+ * and <driver_opt>, the option that takes it, when there is one; a name
+ * listed as neither is left to the kernel to refuse
+ */
+int craf_check_algo_name(const char *cmd, const char *type, const char *opt,
+			 const char *name, const char *driver_opt)
+{
+	char algo[CRAF_STR_MAX + 1];
+	struct kc_error e;
+	int status;
+
+	status = kc_algo_listed(type, name, &e);
+	if (status == KC_OK)
+		return CRAF_OK;
+	if (status == KC_REFUSED) {
+		status = kc_driver_algo(type, name, algo, sizeof(algo), &e);
+		if (status == KC_OK && driver_opt)
+			return craf_err(CRAF_USAGE,
+					"%s \"%s\" is a driver of %s: give it with %s",
+					opt, name, algo, driver_opt);
+		if (status == KC_OK)
+			return craf_err(CRAF_USAGE,
+					"%s \"%s\" is a driver of %s, give the name of the algorithm",
+					opt, name, algo);
+		if (status == KC_REFUSED)
+			return CRAF_OK;
+	}
+	return craf_err(CRAF_FAILED, "%s: %s", cmd, e.msg);
+}

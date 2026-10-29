@@ -96,7 +96,8 @@ enc_expect 2 "-$long-cbc gives a kernel name longer than 63 characters" \
 enc_expect 2 '-md: the length must be 1 to 57' $NAME.enc -d "${ok[@]}" \
 	-md ${long:6}
 driver=$(kc-check driver-for-algo skcipher 'cbc(aes)' 2> /dev/null) || fail=y
-enc_expect 2 "-cipher-algo \"$driver\" is a driver of cbc(aes)" $NAME.enc -d \
+enc_expect 2 "-cipher-algo \"$driver\" is a driver of cbc(aes): give it with -cipher-driver" \
+	$NAME.enc -d \
 	-cipher-algo "$driver" -cipher-key-len 32 -pbkdf2 -kfile $NAME.key
 if kc-check available skcipher 'cbc(cast5)' 2> /dev/null; then
 	enc_expect 2 "give -cipher-algo 'cbc(cast5)' -cipher-key-len" \

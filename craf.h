@@ -90,6 +90,19 @@ struct craf_enc_opts {
 	int pass_fd;			/* of -pass fd:, -1 for none */
 };
 
+/* What the command line says to dgst */
+struct craf_dgst_opts {
+	bool help;
+	const char *hash;		/* -<hash>, without the dash */
+	const char *digest_algo;	/* -digest-algo */
+	char kname[KC_NAME_MAX + 1];	/* the hash as the kernel names it */
+	const char *label;		/* that of an exception, or NULL */
+	bool binary;			/* -binary, -hex the last given */
+	const char *keyform;		/* -keyform, PEM or DER */
+	char **files;
+	int nfiles;
+};
+
 /* A file of key material, read after the output is truncated */
 struct craf_key_file {
 	const char *what;		/* the option that names it */
@@ -104,11 +117,21 @@ extern int craf_driver_check(const char *what, const char *driver,
 extern int craf_driver_for_algo(const char *algo, char *driver);
 
 extern int craf_check_driver_name(const char *name);
+extern int craf_check_algo_name(const char *cmd, const char *type,
+				const char *opt, const char *name,
+				const char *driver_opt);
+
+struct option;
+extern bool craf_typed_exactly(const char *arg, const char *name);
+extern bool craf_exact_option(const struct option *options, const char *arg);
 
 extern int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o);
 extern void craf_enc_key_file(const struct craf_enc_opts *o,
 			      struct craf_key_file *kf);
 extern int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o);
+
+extern int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o);
+extern int craf_dgst(const struct craf_dgst_opts *o);
 
 extern int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 		     const struct craf_key_opts *keys);
