@@ -30,6 +30,7 @@ This project provides a basic example of how to interact with the kernel's crypt
 To build and run this project, you need:
 
   * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf seal and unseal) need **Kernel 6.2 or newer** with `KEYS` support.
+  * For the signatures of craf dgst, a kernel with `KEYCTL_PKEY_*` (4.20 or newer) and asymmetric keys: `ASYMMETRIC_KEY_TYPE`, `ASYMMETRIC_PUBLIC_KEY_SUBTYPE`, `X509_CERTIFICATE_PARSER` and `CRYPTO_RSA`.
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
   * The keyutils library, 1.6 or newer, and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
@@ -262,7 +263,7 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries; it decrypts the files of `openssl enc -pbkdf2`, and it computes the digests of `openssl dgst`, from openssl's own command line:
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries; it decrypts the files of `openssl enc -pbkdf2`, and it computes the digests and checks the signatures of `openssl dgst`, from openssl's own command line:
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -271,6 +272,7 @@ $ craf seal -cipher-driver cbc-aes-ce -enc-blob key.blob < data.tar > data.craf
 $ craf unseal < data.craf > data.tar
 $ craf enc -d -in data.tar.enc -aes-256-cbc -pbkdf2 -kfile data.key > data.tar
 $ craf dgst -sha256 data.tar
+$ craf dgst -sha256 -verify sign.key -signature data.tar.sig data.tar
 ```
 
 Its options, exit statuses, what it protects against, the archive format and its known bugs are in [doc/craf.md](doc/craf.md).

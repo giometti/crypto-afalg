@@ -1,6 +1,6 @@
 # craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it; it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*) and computes the digests of `openssl dgst` (below, *dgst*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it; it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*) and computes the digests and checks the signatures of `openssl dgst` (below, *dgst*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -73,12 +73,14 @@ The tests of `enc` use `openssl enc` as the oracle; without it, with an openssl 
 
 ## dgst: the digests of openssl dgst
 
-`craf dgst` computes a digest as `openssl dgst` does, with the hash in the kernel: the same command line, the name of the command apart, prints the same, but where said below.
+`craf dgst` computes a digest, and checks a signature, as `openssl dgst` does, with the hash and the check in the kernel: the same command line, the name of the command apart, prints the same, but where said below.
 
 ```bash
 $ craf dgst -sha256 rootfs.tar.xz
 SHA2-256(rootfs.tar.xz)= 5b2f...
 $ craf dgst -digest-algo sha256 -binary < rootfs.tar.xz > rootfs.sha256
+$ craf dgst -sha256 -verify rootfs.sign.key -signature rootfs.sig rootfs.tar.xz
+Verified OK
 ```
 
   * The hash, by the name openssl gives it, as an option: `-sha256`, `-sha384`, `-sha3-256`, ... The name goes to the kernel as it is: sha1, sha2 and sha3 have the same names in openssl and in the kernel, and a table for the names that differ, empty for now, is the place where a translation would go, printed as a warning. The name of a driver, such as `-sha256-generic`, is a wrong usage, as for `-digest-algo` and for openssl. A hash the kernel does not have, also by that name, exits with status 3: so do openssl's `blake2b512` (the kernel's `blake2b-512`) and `ripemd160` (`rmd160`). Without a hash, `sha256`, as openssl.
@@ -86,11 +88,21 @@ $ craf dgst -digest-algo sha256 -binary < rootfs.tar.xz > rootfs.sha256
   * The output is that of openssl: `<label>(<file>)= <digest in hex>`, one line per file, `(stdin)` when there is no file. The label is what OpenSSL 3 prints: `SHA2-256` for `-sha256`, and `SHA1`, `SHA2-224` to `SHA2-512`, `SHA3-224` to `SHA3-512`, `MD5` and `SM3` for the others it names its own way; `SHA256` without a hash option (OpenSSL 3.0.13 prints the default hash so); the name of the kernel for any other hash and with `-digest-algo`. `-binary` writes the bytes of the digest instead, `-hex` the line; the last of the two given wins.
   * A file that cannot be read is told on stderr and the others are still computed; the exit status is then 3. A hash the kernel cannot open stops at once.
   * `-keyform PEM` or `-keyform DER`, in any case, as openssl takes it: craf tells the format of a key file by itself, and uses the option for nothing; without `-verify` it has no effect, as a warning says. Another value is a wrong usage.
-  * The other options of `openssl dgst` that craf knows of and does not implement are a wrong usage, said so: `-sign`, `-verify`, `-prverify`, `-sigopt`, `-signature`, `-out`, `-r`, `-c`, `-hmac`, `-mac`, `-macopt`, `-xoflen`, `-list`, `-d`, `-debug`, `-passin`, `-engine`, `-engine_impl`, `-provider`, `-provider-path`, `-propquery`, `-rand`, `-writerand`, `-fips-fingerprint`; so is any other option, as an unknown one, and an abbreviation of one, also when it could name more than one.
+  * The other options of `openssl dgst` that craf knows of and does not implement are a wrong usage, said so: `-sign`, `-prverify`, `-sigopt`, `-out`, `-r`, `-c`, `-hmac`, `-mac`, `-macopt`, `-xoflen`, `-list`, `-d`, `-debug`, `-passin`, `-engine`, `-engine_impl`, `-provider`, `-provider-path`, `-propquery`, `-rand`, `-writerand`, `-fips-fingerprint`; so is any other option, as an unknown one, and an abbreviation of one, also when it could name more than one.
 
-The exit status is 0 when every digest is computed, 2 for a wrong usage, 3 when craf could not compute one (a hash the kernel does not have, a file that cannot be read, an output that cannot be written). openssl exits with 1 in all these cases: a script that looks only at zero or not zero sees no difference. Errors and warnings go to stderr, the digests to stdout.
+  * `-verify <file> -signature <file>`: the signature, by RSA PKCS#1 v1.5 (`openssl dgst -sign`), of the one file given, or of stdin, checked with the public key in the first file. The kernel checks it (`KEYCTL_PKEY_VERIFY`): craf computes the digest, with the hash of the command line, and hands the kernel the digest, the signature and the key, as a key of the keyring of its own thread, out of reach of any other process and taken out at the end.
+    * The key, as `openssl dgst -verify` takes it, PEM or DER: a public key (`PUBLIC KEY`, as `openssl pkey -pubout` writes it) or an RSA public key of PKCS#1 (`RSA PUBLIC KEY`); also a certificate (`CERTIFICATE`), which openssl does not take, whose key is used. In DER, the bytes after the key are left out, as openssl leaves them; a key file is of at most 64 KiB, an RSA key of at most 16384 bytes. The kernel takes a key only within a certificate, so craf wraps a public key in one that names no real issuer and whose signature is none; the kernel checks the signature of a self-signed certificate only, and refuses one whose signature does not hold. craf does not check a certificate: the trust is in the file of the key, as with openssl.
+    * An RSA key only; another key, or a file that is none of these, exits with status 3. `-keyform` is not needed: one that does not match the file is said in a warning, and the file is read as what it is.
+    * As openssl, a signature file is read for at most the length of the key's signatures, so a longer file is checked by its first bytes; an empty one is refused.
+    * craf asks the kernel first whether it can use the key with these parameters (`enc=pkcs1 hash=<hash>`), so that a hash or a key the kernel cannot use exits with status 3, not as a forged signature, and before the data are read.
+    * The verdict goes to stdout, `Verified OK` or `Verification failure`, the cause of a failure to stderr; there is one with exit status 0 and 1 only, none with 2 and 3. `-hex` and `-binary` are taken, with a warning that they have no effect.
+    * A signature with a weak hash (`-md5`, `-sha1`) or a key of fewer than 2048 bits is checked as openssl checks it, with a warning for each: which hashes and keys to trust is the verifier's choice, by the options it gives.
+    * Only one file can be verified, as with openssl; `-signature` without `-verify`, and `-verify` without `-signature`, are a wrong usage.
+    * The verdict is on the bytes craf read: a caller that reads the file again, to install it, gets what the medium gives that time, which a medium out of its control can make other bytes. Verify a copy where nobody else writes, a tmpfs for instance, and use that copy.
 
-The tests of `dgst` use `openssl dgst` as the oracle; without it, or without `sha256` in the kernel, they are `Skipped`.
+The exit status is 0 when every digest is computed, or the signature is verified; 1 when the signature is refused: data, signature or key that do not match, a signature of another hash, an empty signature file; 2 for a wrong usage; 3 when craf could not do it (a hash the kernel does not have, a file that cannot be read, a key that is not RSA or cannot be loaded, a kernel without asymmetric keys, an output that cannot be written). openssl exits with 1 in all these cases: a script that looks only at zero or not zero sees no difference. Errors and warnings go to stderr, the digests and the verdict to stdout.
+
+The tests of `dgst` use `openssl dgst` as the oracle; without it, without `sha256` in the kernel, or, for `-verify`, without `keyctl` or without asymmetric keys and X.509 certificates in the kernel, they are `Skipped`; the test of `-verify` asks the kernel with a certificate in a session keyring of its own.
 
 ## Known bugs
 
