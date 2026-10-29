@@ -99,6 +99,8 @@ struct craf_dgst_opts {
 	const char *label;		/* that of an exception, or NULL */
 	bool binary;			/* -binary, -hex the last given */
 	const char *keyform;		/* -keyform, PEM or DER */
+	const char *verify;		/* -verify, the file of a public key */
+	const char *signature;		/* -signature */
 	char **files;
 	int nfiles;
 };

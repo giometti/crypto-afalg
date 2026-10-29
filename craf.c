@@ -50,6 +50,10 @@ static void usage(FILE *f)
 		"      the digest of each file, or of stdin, as openssl dgst;\n"
 		"      -sha256 when not given; -<hash> as openssl names it,\n"
 		"      -digest-algo <hash> as the kernel does\n"
+		"  dgst [ -<hash> | -digest-algo <hash> ] -verify <file>\n"
+		"       [ -keyform PEM|DER ] -signature <file> [ <file> ]\n"
+		"      verify an RSA PKCS#1 v1.5 signature of a file, or of\n"
+		"      stdin, with a public key or a certificate, PEM or DER\n"
 		"where:\n"
 		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce;\n"
 		"        for enc, of the cipher given\n"
@@ -57,8 +61,9 @@ static void usage(FILE *f)
 		"        [<keyring>,]<type>,<description> (keyring @u or @s)\n"
 		"  <file> of -enc-blob holds the blob of a trusted key in hex,\n"
 		"        as keyctl pipe writes it; the archive carries it\n"
-		"exit status: 0 done, 1 refused (format, truncation, bad decrypt),\n"
-		"  2 wrong usage, 3 could not (driver, key, input, output);\n"
+		"exit status: 0 done, 1 refused (format, truncation, bad decrypt,\n"
+		"  verification failure), 2 wrong usage, 3 could not (driver,\n"
+		"  key, input, output);\n"
 		"  the output is valid only with exit status 0\n",
 		NAME, CRAF_CIPHER_ALGO, CRAF_CIPHER_ALGO);
 }

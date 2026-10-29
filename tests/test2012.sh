@@ -95,10 +95,10 @@ dgst_expect 2 'unknown option or missing value "-SHA256"' -SHA256 $NAME.a
 for opt in -bin -h -he -s -si -v -verif -outx; do
 	dgst_expect 2 "unknown option or missing value \"$opt\"" $opt $NAME.a
 done
-for opt in '-sign x' '-prverify x' '-sigopt x' '-out x' -r -c '-verify x' \
-	'-signature x' -list '-engine x' -engine_impl '-passin x' '-xoflen 5' \
-	-d -debug '-hmac x' '-mac x' '-macopt x' -fips-fingerprint '-rand x' \
-	'-writerand x' '-provider-path x' '-provider x' '-propquery x'; do
+for opt in '-sign x' '-prverify x' '-sigopt x' '-out x' -r -c -list \
+	'-engine x' -engine_impl '-passin x' '-xoflen 5' -d -debug '-hmac x' \
+	'-mac x' '-macopt x' -fips-fingerprint '-rand x' '-writerand x' \
+	'-provider-path x' '-provider x' '-propquery x'; do
 	dgst_expect 2 "dgst: ${opt%% *} is not implemented by craf" $opt $NAME.a
 done
 
