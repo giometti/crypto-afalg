@@ -100,6 +100,7 @@ struct craf_dgst_opts {
 	bool binary;			/* -binary, -hex the last given */
 	const char *keyform;		/* -keyform, PEM or DER */
 	const char *verify;		/* -verify, the file of a public key */
+	const char *verify_key;		/* -verify-key, a key of the keyring */
 	const char *signature;		/* -signature */
 	char **files;
 	int nfiles;

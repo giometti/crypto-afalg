@@ -152,6 +152,32 @@ static int translate(const struct option *options, const char *word,
 	return 1;
 }
 
+/*
+ * A type written in the spec of -verify-key is seen on the command line:
+ * one other than asymmetric verifies nothing. A serial is left to the
+ * kernel, which says what the key is.
+ */
+static int check_key_type(const char *spec)
+{
+	const char *comma, *type, *end;
+
+	comma = strchr(spec, ',');
+	if (!comma)
+		return CRAF_OK;
+	type = spec;
+	end = comma;
+	if (strchr(comma + 1, ',')) {
+		type = comma + 1;
+		end = strchr(type, ',');
+	}
+	if ((size_t) (end - type) != strlen("asymmetric") ||
+	    strncmp(type, "asymmetric", end - type) != 0)
+		return craf_err(CRAF_USAGE, "-verify-key: a key of type "
+				"\"%.*s\", only asymmetric verifies",
+				(int) (end - type), type);
+	return CRAF_OK;
+}
+
 int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o)
 {
 	static const struct option options[] = {
@@ -160,6 +186,7 @@ int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o)
 		{ "binary",		no_argument,		NULL, 'b' },
 		{ "keyform",		required_argument,	NULL, 'K' },
 		{ "verify",		required_argument,	NULL, 'v' },
+		{ "verify-key",		required_argument,	NULL, 'k' },
 		{ "signature",		required_argument,	NULL, 's' },
 		{ "help",		no_argument,		NULL, 'h' },
 		/* What openssl dgst takes and craf dgst does not */
@@ -221,6 +248,9 @@ int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o)
 		case 'v':
 			o->verify = optarg;
 			break;
+		case 'k':
+			o->verify_key = optarg;
+			break;
 		case 's':
 			o->signature = optarg;
 			break;
@@ -263,15 +293,20 @@ int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o)
 	if (o->hash && o->digest_algo)
 		return craf_err(CRAF_USAGE, "dgst: give -%s or -digest-algo, "
 				"not both", o->hash);
-	if (o->signature && !o->verify)
+	if (o->verify && o->verify_key)
+		return craf_err(CRAF_USAGE, "dgst: give -verify or -verify-key, "
+				"not both");
+	if (o->signature && !o->verify && !o->verify_key)
 		return craf_err(CRAF_USAGE,
 				"dgst: -signature needs a key to verify with");
 	if (o->verify && !o->signature)
 		return craf_err(CRAF_USAGE, "dgst: -verify needs -signature");
-	if (o->verify && o->nfiles > 1)
+	if (o->verify_key && !o->signature)
+		return craf_err(CRAF_USAGE, "dgst: -verify-key needs -signature");
+	if (o->signature && o->nfiles > 1)
 		return craf_err(CRAF_USAGE, "dgst: only one file can be "
 				"verified, as with openssl");
-	if (o->verify && format)
+	if (o->signature && format)
 		warn("-hex and -binary have no effect when verifying");
 	if (o->keyform && !o->verify)
 		warn("-keyform has no effect without -verify");
@@ -293,6 +328,8 @@ int craf_dgst_parse(int argc, char *argv[], struct craf_dgst_opts *o)
 		return craf_err(CRAF_USAGE, "dgst: -%s gives a kernel name "
 				"longer than %d characters", o->hash,
 				KC_NAME_MAX);
+	if (o->verify_key)
+		return check_key_type(o->verify_key);
 	return CRAF_OK;
 }
 
@@ -698,12 +735,25 @@ out:
 	return status;
 }
 
+/* A key of the keyring, by serial or by name, as -enc-key takes it */
+static int load_keyring_key(const char *spec, struct kc_key **k)
+{
+	struct kc_error e;
+
+	if (kc_key_spec(k, spec, &e))
+		return craf_err(e.status == KC_USAGE ? CRAF_USAGE : CRAF_FAILED,
+				"-verify-key: %s", e.msg);
+	return CRAF_OK;
+}
+
 /*
  * The one place where the key to verify with is chosen, and where a new
  * source goes
  */
 static int verify_key(const struct craf_dgst_opts *o, struct kc_key **k)
 {
+	if (o->verify_key)
+		return load_keyring_key(o->verify_key, k);
 	return load_key_file(o->verify, o->keyform, k);
 }
 
@@ -866,7 +916,7 @@ int craf_dgst(const struct craf_dgst_opts *o)
 		if (status)
 			return status;
 	}
-	if (o->verify) {
+	if (o->signature) {
 		ret = verify(o);
 		goto out;
 	}
