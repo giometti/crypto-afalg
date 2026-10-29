@@ -165,7 +165,7 @@
 #define err(fmt, args...)                                               \
                 __message(stderr, 0, "%s: " fmt , NAME , ## args)
 #define warn(fmt, args...)                                              \
-                __message(stdout, 0, "%s: " fmt , NAME , ## args)
+                __message(stderr, 0, "%s: warning: " fmt , NAME , ## args)
 #define info(fmt, args...)                                              \
                 __message(stdout, 0, "%s: " fmt , NAME , ## args)
 #define dbg(fmt, args...)                                               \

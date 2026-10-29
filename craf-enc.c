@@ -35,9 +35,6 @@
 #define MD_DEFAULT		"sha256"
 #define MD_MAX			(KC_NAME_MAX - 6)	/* in "hmac()" */
 
-/* On stderr, where it cannot mix with the output (misc.h's goes to stdout) */
-#define enc_warn(fmt, args...)	err("warning: " fmt, ## args)
-
 /* A cipher of openssl whose kernel name the general rule does not give */
 struct exception {
 	const char *openssl;
@@ -269,7 +266,7 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 			o->md = optarg;
 			break;
 		case 's':
-			enc_warn("-salt has no effect when decrypting");
+			warn("-salt has no effect when decrypting");
 			break;
 		case 'f':
 			key_from = CRAF_PASS_KFILE;
@@ -488,8 +485,8 @@ static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
 				"takes, %zu to %zu bytes", o->key_len, o->kname,
 				key_min, key_max);
 	if (o->openssl_name)
-		enc_warn("-%s taken as %s with a %zu-byte key",
-			 o->openssl_name, o->kname, o->key_len);
+		warn("-%s taken as %s with a %zu-byte key",
+		     o->openssl_name, o->kname, o->key_len);
 	return CRAF_OK;
 }
 
@@ -516,8 +513,8 @@ static int read_line(FILE *f, const char *what, size_t max, bool kfile,
 		if (kfile && c == '\r')
 			c = fgetc(f);
 		if (c != EOF && c != '\n')
-			enc_warn("%s: the passphrase is cut to %zu characters, "
-				 "as openssl does", what, max);
+			warn("%s: the passphrase is cut to %zu characters, "
+			     "as openssl does", what, max);
 	}
 	for (i = 0; i < 2 && *len > 0; i++) {
 		if (buf[*len - 1] != '\n' && !(kfile && buf[*len - 1] == '\r'))
