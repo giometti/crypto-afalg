@@ -1,6 +1,6 @@
 # craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it; it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it; it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*) and computes the digests of `openssl dgst` (below, *dgst*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -46,7 +46,7 @@ The archive format, version 1, integers little-endian, a string being its length
 
 The first 12 bytes, `magic`, `version` and `hdr_len`, keep their place in every version, so that a reader tells an archive of another version from something else.
 
-The tests of craf need `keyctl`, `openssl` and `cbc(aes)` in the kernel; without them they are `Skipped`. They use the driver `-cipher-algo` chooses, or the one `CRAF_TEST_DRIVER` names, for a kernel whose preferred driver cannot be used through `AF_ALG`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED` (on a TPM 2.0 the parent key, for example `keyhandle=0x81000001`): without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure. libkcrypto's test of trusted key blobs (`[blob-trusted]`) takes the same variable, in the same way.
+The tests of seal and unseal need `keyctl`, `openssl` and `cbc(aes)` in the kernel; without them they are `Skipped`. They use the driver `-cipher-algo` chooses, or the one `CRAF_TEST_DRIVER` names, for a kernel whose preferred driver cannot be used through `AF_ALG`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED` (on a TPM 2.0 the parent key, for example `keyhandle=0x81000001`): without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure. libkcrypto's test of trusted key blobs (`[blob-trusted]`) takes the same variable, in the same way.
 
 ## enc -d: the files of openssl enc
 
@@ -70,6 +70,27 @@ $ craf enc -d -cipher-driver cbc-aes-ce -cipher-algo 'cbc(aes)' -cipher-key-len 
 The exit status is that of seal and unseal: 1 when the file is refused, a header shorter than 16 bytes or without `Salted__`, a length that is not one of whole blocks, a wrong padding; 2 for a wrong usage; 3 when craf could not do it. What craf wrote before a refusal is what `openssl enc -d` writes: nothing for a refused header, every whole block for a wrong length, every block but the last for a wrong padding; as for unseal, **the output is valid only with exit status 0**: in a pipe, unless craf is its last command, a script sees it with `set -o pipefail` or with bash's `PIPESTATUS`. A wrong passphrase is seen through the padding only, as with openssl: about once in 256 tries it gives exit status 0 and garbage, and the format of `openssl enc` has no room for an authentication.
 
 The tests of `enc` use `openssl enc` as the oracle; without it, with an openssl without `-pbkdf2` (before 1.1.1), or without `cbc(aes)` in the kernel, they are `Skipped`.
+
+## dgst: the digests of openssl dgst
+
+`craf dgst` computes a digest as `openssl dgst` does, with the hash in the kernel: the same command line, the name of the command apart, prints the same, but where said below.
+
+```bash
+$ craf dgst -sha256 rootfs.tar.xz
+SHA2-256(rootfs.tar.xz)= 5b2f...
+$ craf dgst -digest-algo sha256 -binary < rootfs.tar.xz > rootfs.sha256
+```
+
+  * The hash, by the name openssl gives it, as an option: `-sha256`, `-sha384`, `-sha3-256`, ... The name goes to the kernel as it is: sha1, sha2 and sha3 have the same names in openssl and in the kernel, and a table for the names that differ, empty for now, is the place where a translation would go, printed as a warning. The name of a driver, such as `-sha256-generic`, is a wrong usage, as for `-digest-algo` and for openssl. A hash the kernel does not have, also by that name, exits with status 3: so do openssl's `blake2b512` (the kernel's `blake2b-512`) and `ripemd160` (`rmd160`). Without a hash, `sha256`, as openssl.
+  * `-digest-algo <hash>`: the hash by the name of the kernel, at most 63 characters, no white space nor `=`, without a warning; not together with a hash option. The name of a driver, such as `sha256-generic`, is a wrong usage: craf names the algorithm it is a driver of. Which hashes there are, the kernel says; that a name is a driver, `/proc/crypto` (for a hash option too), so without it craf exits with status 3.
+  * The output is that of openssl: `<label>(<file>)= <digest in hex>`, one line per file, `(stdin)` when there is no file. The label is what OpenSSL 3 prints: `SHA2-256` for `-sha256`, and `SHA1`, `SHA2-224` to `SHA2-512`, `SHA3-224` to `SHA3-512`, `MD5` and `SM3` for the others it names its own way; `SHA256` without a hash option (OpenSSL 3.0.13 prints the default hash so); the name of the kernel for any other hash and with `-digest-algo`. `-binary` writes the bytes of the digest instead, `-hex` the line; the last of the two given wins.
+  * A file that cannot be read is told on stderr and the others are still computed; the exit status is then 3. A hash the kernel cannot open stops at once.
+  * `-keyform PEM` or `-keyform DER`, in any case, as openssl takes it: craf tells the format of a key file by itself, and uses the option for nothing; without `-verify` it has no effect, as a warning says. Another value is a wrong usage.
+  * The other options of `openssl dgst` that craf knows of and does not implement are a wrong usage, said so: `-sign`, `-verify`, `-prverify`, `-sigopt`, `-signature`, `-out`, `-r`, `-c`, `-hmac`, `-mac`, `-macopt`, `-xoflen`, `-list`, `-d`, `-debug`, `-passin`, `-engine`, `-engine_impl`, `-provider`, `-provider-path`, `-propquery`, `-rand`, `-writerand`, `-fips-fingerprint`; so is any other option, as an unknown one, and an abbreviation of one, also when it could name more than one.
+
+The exit status is 0 when every digest is computed, 2 for a wrong usage, 3 when craf could not compute one (a hash the kernel does not have, a file that cannot be read, an output that cannot be written). openssl exits with 1 in all these cases: a script that looks only at zero or not zero sees no difference. Errors and warnings go to stderr, the digests to stdout.
+
+The tests of `dgst` use `openssl dgst` as the oracle; without it, or without `sha256` in the kernel, they are `Skipped`.
 
 ## Known bugs
 
