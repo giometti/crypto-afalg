@@ -1,6 +1,7 @@
 *.d
 *.o
 craf
+kcdm
 crypto-afalg
 .version
 .asan

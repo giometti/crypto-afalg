@@ -48,7 +48,7 @@ export LD_LIBRARY_PATH="$tmp/build"
 export SRCDIR=$top
 
 # A tool the build did not make would be taken from the rest of PATH
-for tool in crypto-afalg craf kc-check; do
+for tool in crypto-afalg craf kcdm kc-check; do
 	if [ "$(command -v $tool)" != "$tmp/build/$tool" ]; then
 		echo "$tool: not built in $tmp/build" >&2
 		exit 1
