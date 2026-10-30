@@ -127,7 +127,7 @@ extern int kc_key_raw(struct kc_key **k, const void *data, size_t len,
  * the library asks the kernel, and a key it cannot ask about, as one it
  * may not link, makes the answer unknown. That, and a key of the keyrings
  * that cannot be described, is KC_FAILED with its errno, never a pass.
- * What is opened with a keyring key is KC_FAILED where
+ * A cipher or a hash opened with a keyring key is KC_FAILED where
  * kc_key_serial_supported() is 0 (EOPNOTSUPP) or the kernel is older than
  * Linux 6.2 (its errno).
  */
@@ -325,5 +325,51 @@ extern int kc_openssl_derive(const char *hmac, const void *pass,
 			     unsigned int iter, size_t key_len,
 			     struct kc_key **k, void *iv, size_t iv_len,
 			     struct kc_error *e);
+
+/*
+ * dm-crypt, through the ioctls of /dev/mapper/control, which want
+ * CAP_SYS_ADMIN. kc_dm_open() maps the whole block device at device to
+ * the device name, with the table "0 <sectors> crypt <cipher>
+ * :<key_size>:<type>:<description> 0 <major>:<minor> 0 [<n> <opts>...]",
+ * the cipher as dm-crypt takes it (as "capi:cbc(aes)-plain") and opts,
+ * NULL-terminated or NULL, its optional parameters, one word each; it
+ * resumes the device and makes the node /dev/mapper/<name>, which udev
+ * would make. The keyring key k goes into the table by its type and
+ * description, which dm-crypt looks up for the calling process when the
+ * table is loaded: the library looks it up the same way first, and that
+ * check holds when it is made. A step that fails undoes those before, and
+ * the message says when the device could not be removed. flags is 0: no
+ * flag is defined yet.
+ *
+ * kc_dm_check() checks the flags, the name and the words of the table, as
+ * kc_dm_open() does first, and gives KC_USAGE (EINVAL) for flags not 0; a
+ * name of DM_NAME_LEN bytes or more, with white space or control
+ * characters, or that /dev/mapper cannot hold; an empty cipher or
+ * parameter, or one with white space as the kernel counts it (0xa0 too)
+ * or a backslash, which the kernel would read otherwise; a key size of 0
+ * or above INT_MAX. kc_dm_open() gives KC_USAGE also for no device and a
+ * key that is not a keyring key. It gives KC_FAILED, with the errno, for a
+ * key of a type dm-crypt does not take (it takes logon, user, encrypted
+ * and trusted) or with white space or a backslash in its description
+ * (EINVAL), one this process does not reach by them, or for which it
+ * reaches another key first (ENOTUNIQ); a device that is not there, is
+ * not a block device (ENOTBLK), is mounted or mapped already (EBUSY) or
+ * has no sector; a name in use (EBUSY); a table the kernel does not take,
+ * with the kernel's errno (ENOENT for a cipher or a driver it does not
+ * have, EINVAL for most else), whose reason is in the kernel log.
+ *
+ * kc_dm_close() removes the device name, and its node if that is the
+ * node of the device or a link to it: KC_USAGE for a name kc_dm_open()
+ * would refuse, KC_FAILED with ENXIO for no such device, EBUSY for one in
+ * use. Both retry for a while a removal the kernel finds busy.
+ */
+extern int kc_dm_check(const char *name, const char *cipher,
+		       unsigned int key_size, const char *const *opts,
+		       unsigned int flags, struct kc_error *e);
+extern int kc_dm_open(const char *name, const char *device,
+		      const char *cipher, const struct kc_key *k,
+		      unsigned int key_size, const char *const *opts,
+		      unsigned int flags, struct kc_error *e);
+extern int kc_dm_close(const char *name, struct kc_error *e);
 
 #endif /* KCRYPTO_H */

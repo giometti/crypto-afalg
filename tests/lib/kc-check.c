@@ -74,6 +74,9 @@ static void __attribute__((noreturn)) usage(void)
 		"    fields are not 0\n"
 		"  pkey-verify <key> <params> <digest file> <signature file>\n"
 		"  (for pkey-*, <params> \"-\" is NULL)\n"
+		"  dm-open <name> <device> <cipher> <key> <key size> <flags>\n"
+		"    [<parameter>...]: <name> or <device> \"-\" is NULL\n"
+		"  dm-close <name>: \"-\" is NULL\n"
 		"exhaust: no file descriptor left before the command\n"
 		"exit status: the kc_status, %d for a wrong command line\n",
 		EXIT_USAGE);
@@ -614,6 +617,27 @@ static int pkey_verify(const char *key, const char *params,
 	return status;
 }
 
+/* "-" stands for NULL, which a command line cannot give */
+static const char *dm_arg(const char *arg)
+{
+	return strcmp(arg, "-") == 0 ? NULL : arg;
+}
+
+static int dm_open(char *argv[], int argc, struct kc_error *e)
+{
+	struct kc_key *k;
+	int status;
+
+	status = make_key(argv[3], &k, e);
+	if (!status)
+		status = kc_dm_open(dm_arg(argv[0]), dm_arg(argv[1]), argv[2],
+				    k, strtoul(argv[4], NULL, 10),
+				    argc > 6 ? (const char *const *) argv + 6 :
+				    NULL, strtoul(argv[5], NULL, 10), e);
+	kc_key_free(k);
+	return status;
+}
+
 static int hash_after(const char *name, size_t room, const char *then,
 		      struct kc_error *e)
 {
@@ -719,6 +743,10 @@ int main(int argc, char *argv[])
 		status = pkey_query(argv[2], argv[3], &e);
 	else if (strcmp(argv[1], "pkey-verify") == 0 && argc == 6)
 		status = pkey_verify(argv[2], argv[3], argv[4], argv[5], &e);
+	else if (strcmp(argv[1], "dm-open") == 0 && argc >= 8)
+		status = dm_open(argv + 2, argc - 2, &e);
+	else if (strcmp(argv[1], "dm-close") == 0 && argc == 3)
+		status = kc_dm_close(dm_arg(argv[2]), &e);
 	else if (strcmp(argv[1], "hash") == 0 && (argc == 4 || argc == 5))
 		status = hash(argv[2], argv[3],
 			      argc == 5 ? strtoul(argv[4], NULL, 10) :
