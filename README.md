@@ -31,6 +31,7 @@ To build and run this project, you need:
 
   * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf seal and unseal) need **Kernel 6.2 or newer** with `KEYS` support.
   * For the signatures of craf dgst, a kernel with `KEYCTL_PKEY_*` (4.20 or newer) and asymmetric keys: `ASYMMETRIC_KEY_TYPE`, `ASYMMETRIC_PUBLIC_KEY_SUBTYPE`, `X509_CERTIFICATE_PARSER` and `CRYPTO_RSA`.
+  * For kcdm, a kernel with `BLK_DEV_DM`, `DM_CRYPT` and `KEYS`, and `TRUSTED_KEYS` or `ENCRYPTED_KEYS` for the key type it uses (Kconfig makes `DM_CRYPT` a module when one of them is a module), with devtmpfs mounted on `/dev` (see [doc/kcdm.md](doc/kcdm.md)).
   * A C compiler (e.g., `gcc`).
   * The standard Linux kernel headers installed on your system.
   * The keyutils library, 1.6 or newer, and its header `keyutils.h` (e.g., the `libkeyutils-dev` package).
@@ -50,7 +51,7 @@ $ cd crypto-afalg
 $ make
 ```
 
-The build produces the tools, `crypto-afalg` and `craf`, and the shared library they use, `libkcrypto.so.0` (see [libkcrypto](#libkcrypto)). To run the tools from the build directory without installing them, tell the dynamic loader where the library is:
+The build produces the tools, `crypto-afalg`, `craf` and `kcdm`, and the shared library they use, `libkcrypto.so.0` (see [libkcrypto](#libkcrypto)). To run the tools from the build directory without installing them, tell the dynamic loader where the library is:
 
 ```bash
 $ export LD_LIBRARY_PATH=$PWD
@@ -73,7 +74,7 @@ To catch memory errors that do not change the output, run the tests with Address
 
 If a test is marked as `Skipped`, it means that your machine does not support the corresponding crypto algorithm, or lacks something else the test needs (for craf, see below).
 
-The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(aes)` that the kernel prefers, the one `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`; the tests of `--force-driver` and of libkcrypto check it first, and a driver the kernel does not have, or one that is not of `cbc(aes)`, makes them fail instead of being `Skipped`. The tests that use a trusted key, craf's `[trusted]` and libkcrypto's `[blob-trusted]`, create one with the options of `new` in `CRAF_TEST_TRUSTED`: on a TPM 2.0 the parent key, for example `make tests CRAF_TEST_TRUSTED=keyhandle=0x81000001`. Without the variable they are `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure.
+The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(aes)` that the kernel prefers, the one `craf seal -cipher-algo` chooses. On a kernel whose preferred driver cannot be used through `AF_ALG`, name a usable one in `CRAF_TEST_DRIVER`, for example `make tests CRAF_TEST_DRIVER=cbc-aes-ce`; the tests of `--force-driver` and of libkcrypto check it first, and a driver the kernel does not have, or one that is not of `cbc(aes)`, makes them fail instead of being `Skipped`. The tests that use a trusted key, craf's `[trusted]` and libkcrypto's `[blob-trusted]`, create one with the options of `new` in `CRAF_TEST_TRUSTED`: on a TPM 2.0 the parent key, for example `make tests CRAF_TEST_TRUSTED=keyhandle=0x81000001`. Without the variable they are `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure. The test of kcdm on loop devices, `[loop]`, makes device-mapper devices: it runs only with `KCDM_TEST_LOOP=1`, as root, and is `Skipped` otherwise; what a killed run leaves behind is in [doc/kcdm.md](doc/kcdm.md).
 
 ## How to Install
 
@@ -81,7 +82,7 @@ The tests of craf, of `--force-driver` and of libkcrypto use the driver of `cbc(
 $ make install
 ```
 
-installs `crypto-afalg` and `craf` into `PREFIX` (default `/usr/bin`), the library `libkcrypto.so.0` and its link-time name `libkcrypto.so` into `LIBDIR` (default `/usr/lib`), and the header `kcrypto.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files, and also `libafalg.so.0`, `libafalg.so` and `afalg.h`, which the versions up to v1.3.0 installed and libkcrypto replaces.
+installs `crypto-afalg`, `craf` and `kcdm` into `PREFIX` (default `/usr/bin`), the library `libkcrypto.so.0` and its link-time name `libkcrypto.so` into `LIBDIR` (default `/usr/lib`), and the header `kcrypto.h` into `INCLUDEDIR` (default `/usr/include`); `DESTDIR`, if set, is prepended to all three, for packaging. `make uninstall` removes the same files, and also `libafalg.so.0`, `libafalg.so` and `afalg.h`, which the versions up to v1.3.0 installed and libkcrypto replaces.
 
 `LIBDIR` must be a directory the dynamic loader searches: after installing into one it finds only through its cache, such as `/usr/local/lib`, run `ldconfig` as root.
 
@@ -259,7 +260,7 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## libkcrypto
 
-`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg and craf are built on it. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
+`libkcrypto.so.0` gives user space the cryptography of the Linux kernel, with the keys where the kernel keeps them; crypto-afalg, craf and kcdm are built on it. Its interface is **unstable until version 1.0**; what it offers and how to use it are in [doc/libkcrypto.md](doc/libkcrypto.md).
 
 ## craf
 
@@ -276,6 +277,17 @@ $ craf dgst -sha256 -verify sign.key -signature data.tar.sig data.tar
 ```
 
 Its options, exit statuses, what it protects against, the archive format and its known bugs are in [doc/craf.md](doc/craf.md).
+
+## kcdm
+
+`kcdm` opens and closes a dm-crypt device whose key is in the keyring, without `dmsetup`, `libdevmapper` or udev, for an initramfs:
+
+```bash
+$ kcdm open /dev/mmcblk0p3 root -cipher capi:cbc-aes-tee-plain -key @u,trusted,logon -key-size 32
+$ kcdm close root
+```
+
+Its options and exit statuses are in [doc/kcdm.md](doc/kcdm.md).
 
 -----
 
