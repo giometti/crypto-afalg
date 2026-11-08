@@ -342,6 +342,13 @@ extern int kc_cipher_iv(const struct kc_cipher *c, void *iv, size_t len,
 extern const char *kc_cipher_driver(const struct kc_cipher *c);
 
 /*
+ * The bytes of key the cipher runs with, where the library knows them: a
+ * key of raw bytes, or a keycrypt key, whose algorithm fixes them (32 for
+ * aes256-cbc); 0 for any other keyring key, whose length the kernel keeps
+ */
+extern size_t kc_cipher_key_len(const struct kc_cipher *c);
+
+/*
  * An asymmetric keyring key, by its serial, with the parameters of keyctl
  * (as "enc=pkcs1 hash=sha256"), which the kernel reads: it never gives
  * the key out. kc_pkey_query() says what the key can do with them, the

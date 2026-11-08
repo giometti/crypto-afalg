@@ -90,6 +90,7 @@ extern int kc_keycrypt_open(struct kc_kcrypt **x, int32_t serial,
 			    int encrypt, const void *iv, unsigned int min_tier,
 			    struct kc_error *e);
 extern const char *kc_keycrypt_algo(const struct kc_kcrypt *x);
+extern size_t kc_keycrypt_key_len(const struct kc_kcrypt *x);
 extern const unsigned char *kc_keycrypt_iv(const struct kc_kcrypt *x);
 extern const char *kc_keycrypt_backend(const struct kc_kcrypt *x);
 /* Whole blocks, any number of them */

@@ -61,6 +61,7 @@ keyfield backend $NAME-ed 13
 kc-check cipher-backend auto enc - spec:@s,keycrypt,$NAME-ed - 0 $NAME.meta \
 	< $NAME.in > $NAME.enc || fail=y
 grep -qxF "driver: keycrypt@$backend" $NAME.meta || fail=y
+grep -qxF "key_len: 32" $NAME.meta || fail=y
 kiv=$(sed -n 's/^iv: //p' $NAME.meta)
 [ ${#kiv} -eq 32 ] || fail=y
 kc-check cipher-backend keycrypt dec 'cbc(aes)' spec:$kx $kiv 0 $NAME.dm \

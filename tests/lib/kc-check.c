@@ -57,7 +57,8 @@ static void __attribute__((noreturn)) usage(void)
 		"    <meta file>: as cipher, through kc_cipher_open_backend()\n"
 		"    with <backend> auto, afalg, keycrypt or a number, and\n"
 		"    the minimum tier; <name> or <iv> \"-\" is NULL; the\n"
-		"    driver and the IV once open into <meta file>\n"
+		"    driver, the IV and the key length once open into <meta\n"
+		"    file>\n"
 		"  cipher-after enc|dec <name> <key> <iv>: after a final, the\n"
 		"    status of one more update\n"
 		"  blob-unload <blob> <name>: the status of a cipher opened\n"
@@ -337,7 +338,7 @@ static int hash(const char *name, const char *key, size_t room,
 	return status;
 }
 
-/* What the cipher runs with, into the meta file: its driver and its IV */
+/* What the cipher runs with, into the meta file */
 static void write_meta(const char *path, const struct kc_cipher *c,
 		       size_t iv_len)
 {
@@ -354,7 +355,7 @@ static void write_meta(const char *path, const struct kc_cipher *c,
 	fprintf(f, "driver: %s\niv: ", kc_cipher_driver(c));
 	for (i = 0; i < iv_len; i++)
 		fprintf(f, "%02x", iv[i]);
-	fprintf(f, "\n");
+	fprintf(f, "\nkey_len: %zu\n", kc_cipher_key_len(c));
 	if (fclose(f)) {
 		perror(path);
 		exit(3);
@@ -363,7 +364,8 @@ static void write_meta(const char *path, const struct kc_cipher *c,
 
 /*
  * kc_cipher_open_backend(): name "-" is NULL; iv "-" is NULL, an IV of 16
- * bytes; the meta file, when given, gets the driver and the IV once open
+ * bytes; the meta file, when given, gets the driver, the IV and the key
+ * length once open
  */
 static int cipher_with(const char *dir, enum kc_backend_sel sel,
 		       const char *name, const char *key, const char *iv_hex,

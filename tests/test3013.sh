@@ -39,6 +39,7 @@ for sel in auto afalg; do
 		cmp -s - $NAME.in || fail=y
 	grep -qxF "driver: $cbc" $NAME.meta || fail=y
 	grep -qxF "iv: $iv" $NAME.meta || fail=y
+	grep -qxF "key_len: 0" $NAME.meta || fail=y
 done
 
 # No IV in encryption: the library draws one, a new one every time, and
@@ -48,6 +49,7 @@ for n in 1 2; do
 		< $NAME.in > $NAME.e$n || fail=y
 	ivn=$(sed -n 's/^iv: //p' $NAME.m$n)
 	[ ${#ivn} -eq 32 ] || fail=y
+	grep -qxF "key_len: 32" $NAME.m$n || fail=y
 	openssl enc -d -aes-256-cbc -K $k -iv $ivn < $NAME.e$n |
 		cmp -s - $NAME.in || fail=y
 	kc-check cipher-backend auto dec "$cbc" $user $ivn 0 $NAME.dm \

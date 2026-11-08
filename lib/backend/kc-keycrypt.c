@@ -269,6 +269,12 @@ const char *kc_keycrypt_algo(const struct kc_kcrypt *x)
 	return x->alg == KEYCRYPT_ALG_AES256_CBC ? "cbc(aes)" : NULL;
 }
 
+/* The bytes of the key's algorithm, which the key's metadata fix */
+size_t kc_keycrypt_key_len(const struct kc_kcrypt *x)
+{
+	return x->alg == KEYCRYPT_ALG_AES256_CBC ? 32 : 0;
+}
+
 const unsigned char *kc_keycrypt_iv(const struct kc_kcrypt *x)
 {
 	return x->iv;

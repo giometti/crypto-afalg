@@ -36,6 +36,7 @@ struct kc_cipher {
 	struct kc_kcrypt *kx;
 	char driver[KC_NAME_MAX + 1];
 	unsigned char iv[KC_BLOCK_MAX];
+	size_t key_len;			/* 0: not known here */
 	bool encrypt;
 	size_t block;
 	unsigned char part[KC_BLOCK_MAX];	/* input short of a block */
@@ -121,6 +122,7 @@ static int open_keycrypt(struct kc_cipher *c, const char *name,
 			       "the keycrypt key %d is of %s, with its own backend: \"%s\" is not for it",
 			       k->serial, algo, name);
 	memcpy(c->iv, kc_keycrypt_iv(c->kx), KC_KEYCRYPT_IV_LEN);
+	c->key_len = kc_keycrypt_key_len(c->kx);
 	snprintf(c->driver, sizeof(c->driver), KEYCRYPT_PREFIX "%s",
 		 kc_keycrypt_backend(c->kx));
 	return kc_ok(e);
@@ -144,6 +146,10 @@ static int open_afalg(struct kc_cipher *c, const char *name,
 	else if (getrandom(c->iv, c->block, 0) != (ssize_t) c->block)
 		return kc_fail(e, KC_FAILED, errno,
 			       "cannot get a random IV: %s", strerror(errno));
+
+	/* A keyring key keeps its length in the kernel */
+	if (k->type == KC_KEY_RAW)
+		c->key_len = k->len;
 
 	/* open() takes no name longer than KC_NAME_MAX */
 	status = KC_BACKEND->open(&c->tfm, "skcipher", name, e);
@@ -287,6 +293,11 @@ KC_EXPORT int kc_cipher_iv(const struct kc_cipher *c, void *iv, size_t len,
 KC_EXPORT const char *kc_cipher_driver(const struct kc_cipher *c)
 {
 	return c->driver;
+}
+
+KC_EXPORT size_t kc_cipher_key_len(const struct kc_cipher *c)
+{
+	return c->key_len;
 }
 
 KC_EXPORT int kc_cipher_update(struct kc_cipher *c, const void *in,
