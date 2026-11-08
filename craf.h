@@ -58,6 +58,9 @@ struct craf_driver_opts {
 	const char *cipher_driver;	/* seal -cipher-driver */
 	const char *cipher_algo;	/* seal -cipher-algo */
 	bool any_driver;		/* unseal -any-driver */
+	enum kc_backend_sel backend;	/* -backend, KC_BACKEND_AUTO if not */
+	unsigned int min_tier;		/* -enc-min-tier, 0 if not given */
+	bool backend_opts;		/* either of the two given */
 };
 
 struct craf_key_opts;

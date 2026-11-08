@@ -17,8 +17,8 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
 #include <string.h>
-#include <sys/random.h>
 #include "craf-archive.h"
 #include "craf-keys.h"
 
@@ -26,22 +26,41 @@
 static struct craf_wbuf hdr;
 
 /*
- * The library's "no" is a bad decrypt, or a driver the kernel does not
- * have; anything else could not be done
+ * The library's "no" is a driver the kernel does not have; a wrong usage
+ * is the caller's, the lack of a driver for a key that needs one among
+ * them; anything else could not be done. Unsealing through keycrypt, as
+ * <name> says, with a key that is none was given the wrong key, whatever
+ * -backend says: could not.
  */
-static int open_cipher(const char *driver, const struct kc_key *key,
-		       int encrypt, const uint8_t *iv, struct kc_cipher **c)
+static int open_cipher(const char *cmd, const char *driver,
+		       const char *name, const struct kc_key *key,
+		       int encrypt, const uint8_t *iv, enum kc_backend_sel sel,
+		       const struct craf_driver_opts *drv,
+		       struct kc_cipher **c)
 {
 	struct kc_error e;
 	int status;
 
-	status = kc_cipher_open(c, driver, key, encrypt, iv, CRAF_IV_LEN, &e);
+	status = kc_cipher_open_backend(c, sel, driver, key, encrypt, iv,
+					CRAF_IV_LEN, drv->min_tier, &e);
 	if (status == KC_REFUSED)
 		return craf_err(CRAF_FAILED,
 				"cipher_driver \"%s\" not available: %s", driver,
 				strerror(e.errnum));
-	if (status)
+	if (status == KC_USAGE && e.errnum == EDESTADDRREQ)
+		return craf_err(CRAF_USAGE,
+				"%s: -cipher-driver or -cipher-algo is required",
+				cmd);
+	if (status == KC_USAGE && e.errnum == EOPNOTSUPP && !encrypt)
+		return craf_err(CRAF_FAILED, "%s: %s needs a keycrypt key: %s",
+				cmd, name, e.msg);
+	if (status == KC_USAGE)
+		return craf_err(CRAF_USAGE, "%s: %s", cmd, e.msg);
+	if (status && driver)
 		return craf_err(CRAF_FAILED, "cannot open \"%s\": %s", driver,
+				e.msg);
+	if (status)
+		return craf_err(CRAF_FAILED, "cannot open the cipher: %s",
 				e.msg);
 	return CRAF_OK;
 }
@@ -112,11 +131,13 @@ static int unseal_driver(const struct craf_driver_opts *drv,
 int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	      const struct craf_key_opts *opts)
 {
+	struct craf_key_opts o = *opts;
 	const struct craf_key_source *src;
 	struct craf_keys keys = {};
 	struct craf_header h = {};
 	struct kc_cipher *c = NULL;
 	struct kc_error e;
+	char driver[CRAF_STR_MAX + 1];
 	uint8_t plain[CRAF_BUF_SIZE];
 	uint8_t cipher[CRAF_BUF_SIZE + CRAF_BLOCK];
 	size_t n, len;
@@ -125,23 +146,34 @@ int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	status = craf_seal_source(opts, &src);
 	if (status)
 		return status;
-	status = src->seal_keys(opts, &keys);
+	o.keycrypt = drv->backend == KC_BACKEND_KEYCRYPT;
+	status = src->seal_keys(&o, &keys);
 	if (status)
 		goto out;
-	status = seal_driver(drv, h.cipher_driver);
-	if (status)
-		goto out;
+	if (drv->cipher_driver || drv->cipher_algo) {
+		status = seal_driver(drv, driver);
+		if (status)
+			goto out;
+	}
 
-	if (getrandom(h.iv, CRAF_IV_LEN, 0) != CRAF_IV_LEN) {
-		status = craf_err(CRAF_FAILED, "cannot get a random IV: %m");
+	/*
+	 * The library draws the IV, and says what runs the cipher: the
+	 * driver, or keycrypt@<backend> for a keycrypt key, which takes no
+	 * driver and needs one in the header all the same
+	 */
+	status = open_cipher("seal", drv->cipher_driver || drv->cipher_algo ?
+			     driver : NULL, NULL, keys.enc, 1, NULL,
+			     drv->backend, drv, &c);
+	if (status)
+		goto out;
+	if (kc_cipher_iv(c, h.iv, sizeof(h.iv), &e)) {
+		status = craf_err(CRAF_FAILED, "%s", e.msg);
 		goto out;
 	}
+	strcpy(h.cipher_driver, kc_cipher_driver(c));
 	strcpy(h.cipher_algo, CRAF_CIPHER_ALGO);
 	h.key_len = CRAF_KEY_LEN;
 	status = craf_header_write(&hdr, &h, src, &keys);
-	if (status)
-		goto out;
-	status = open_cipher(h.cipher_driver, keys.enc, 1, h.iv, &c);
 	if (!status)
 		status = write_output(out, hdr.data, hdr.len);
 	if (status)
@@ -174,12 +206,15 @@ out:
 int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 		const struct craf_key_opts *opts)
 {
+	struct craf_key_opts o = *opts;
 	const struct craf_key_source *src = NULL;
 	struct craf_keys keys = {};
 	struct craf_header h = {};
 	struct kc_cipher *c = NULL;
 	struct kc_error e;
 	char driver[CRAF_STR_MAX + 1];
+	const char *name;
+	bool keycrypt;
 	uint8_t buf[CRAF_BUF_SIZE];
 	uint8_t plain[CRAF_BUF_SIZE + CRAF_BLOCK];
 	size_t n, len;
@@ -189,12 +224,42 @@ int craf_unseal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 	status = craf_header_read(in, &hdr, &h, &src, &keys);
 	if (!status)
 		status = craf_unseal_key_opts(src, opts);
-	if (!status)
+	if (status)
+		goto out;
+
+	/*
+	 * The driver says the backend, the header's or the one given: a
+	 * keycrypt key runs on the backend that holds it, which the kernel
+	 * names once the key is open; any other driver as for AF_ALG
+	 */
+	name = drv->cipher_driver ? drv->cipher_driver : h.cipher_driver;
+	keycrypt = strncmp(name, KC_KEYCRYPT_DRIVER_PREFIX,
+			   strlen(KC_KEYCRYPT_DRIVER_PREFIX)) == 0;
+	if (keycrypt && drv->any_driver)
+		status = craf_err(CRAF_USAGE, "unseal: -any-driver chooses a "
+				  "driver of AF_ALG, and the archive is of %s",
+				  name);
+	else if (keycrypt && drv->backend == KC_BACKEND_AFALG)
+		status = craf_err(CRAF_USAGE, "unseal: -backend afalg, and the "
+				  "archive is of %s", name);
+	else if (!keycrypt && drv->backend == KC_BACKEND_KEYCRYPT)
+		status = craf_err(CRAF_USAGE, "unseal: -backend keycrypt, and the "
+				  "archive is of %s", name);
+	else if (!keycrypt)
 		status = unseal_driver(drv, &h, driver);
+	o.keycrypt = keycrypt;
 	if (!status)
-		status = src->unseal_keys(opts, &keys);
+		status = src->unseal_keys(&o, &keys);
 	if (!status)
-		status = open_cipher(driver, keys.enc, 0, h.iv, &c);
+		status = open_cipher("unseal", keycrypt ? NULL : driver, name,
+				     keys.enc, 0, h.iv, keycrypt ?
+				     KC_BACKEND_KEYCRYPT : KC_BACKEND_AFALG,
+				     drv, &c);
+	if (!status && keycrypt && strcmp(kc_cipher_driver(c), name) != 0)
+		status = craf_err(CRAF_FAILED, "unseal: the archive is of %s, "
+				  "the key is run by %s: -cipher-driver %s to "
+				  "unseal it with this key", name,
+				  kc_cipher_driver(c), kc_cipher_driver(c));
 	if (status)
 		goto out;
 

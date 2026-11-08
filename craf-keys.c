@@ -69,7 +69,7 @@ static int resolve(const char *opt, const char *spec, struct kc_key **key)
 	if (status)
 		return craf_err(status == KC_USAGE ? CRAF_USAGE : CRAF_FAILED,
 				"%s: %s", opt, e.msg);
-	return check_user_key(opt, kc_key_serial(*key));
+	return CRAF_OK;
 }
 
 /*
@@ -79,7 +79,14 @@ static int resolve(const char *opt, const char *spec, struct kc_key **key)
 static int serial_keys(const struct craf_key_opts *opts,
 		       struct craf_keys *keys)
 {
-	return resolve("-enc-key", opts->enc_key, &keys->enc);
+	int status;
+
+	status = resolve("-enc-key", opts->enc_key, &keys->enc);
+
+	/* Keycrypt brings the length, and asks no View of the key */
+	if (!status && !opts->keycrypt)
+		status = check_user_key("-enc-key", kc_key_serial(keys->enc));
+	return status;
 }
 
 static int serial_write_fields(struct craf_wbuf *b, struct craf_keys *keys)

@@ -32,11 +32,14 @@ static void usage(FILE *f)
 		"usage: %s -help | -version | <command> [ <options> ]\n"
 		"commands:\n"
 		"  seal [ -in <file> ] [ -out <file> ]\n"
-		"       -cipher-driver <driver> | -cipher-algo %s\n"
+		"       [ -cipher-driver <driver> | -cipher-algo %s ]\n"
 		"       -enc-key <key> | -enc-blob <file>\n"
-		"      encrypt the input into an archive\n"
+		"       [ -backend auto|afalg|keycrypt ] [ -enc-min-tier <tier> ]\n"
+		"      encrypt the input into an archive; a driver for any key\n"
+		"      but a keycrypt one, which takes none\n"
 		"  unseal [ -in <file> ] [ -out <file> ]\n"
 		"       [ -cipher-driver <driver> | -any-driver ] [ -enc-key <key> ]\n"
+		"       [ -backend auto|afalg|keycrypt ] [ -enc-min-tier <tier> ]\n"
 		"      decrypt an archive; -enc-key for one sealed with -enc-key\n"
 		"  info [ -in <file> ]\n"
 		"      print the header of an archive, without decrypting it\n"
@@ -61,7 +64,10 @@ static void usage(FILE *f)
 		"      the same with an asymmetric key of the keyring\n"
 		"where:\n"
 		"  <driver> is a kernel driver of %s, e.g. cbc-aes-ce;\n"
-		"        for enc, of the cipher given\n"
+		"        for enc, of the cipher given; for unseal of an archive\n"
+		"        of a keycrypt key, keycrypt@<backend>\n"
+		"  <tier> is any, kernel, engine, tee or hsm: a keycrypt key\n"
+		"        of a lower tier is refused\n"
 		"  <key> is a keyring key: a serial number, or\n"
 		"        [<keyring>,]<type>,<description> (keyring @u or @s)\n"
 		"  <file> of -enc-blob holds the blob of a trusted key in hex,\n"
@@ -100,6 +106,45 @@ int craf_check_driver_name(const char *name)
 	return CRAF_OK;
 }
 
+static int parse_backend(const char *arg, enum kc_backend_sel *sel)
+{
+	if (strcmp(arg, "auto") == 0)
+		*sel = KC_BACKEND_AUTO;
+	else if (strcmp(arg, "afalg") == 0)
+		*sel = KC_BACKEND_AFALG;
+	else if (strcmp(arg, "keycrypt") == 0)
+		*sel = KC_BACKEND_KEYCRYPT;
+	else
+		return craf_err(CRAF_USAGE,
+				"-backend: \"%s\" is not auto, afalg or keycrypt",
+				arg);
+	return CRAF_OK;
+}
+
+/* The tiers of keycrypt, by the names its key metadata give them */
+static int parse_tier(const char *arg, unsigned int *tier)
+{
+	static const struct {
+		const char *name;
+		unsigned int tier;
+	} tiers[] = {
+		{ "any",	KC_TIER_ANY },
+		{ "kernel",	KC_TIER_KERNEL },
+		{ "engine",	KC_TIER_ENGINE },
+		{ "tee",	KC_TIER_TEE },
+		{ "hsm",	KC_TIER_HSM },
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(tiers); i++)
+		if (strcmp(arg, tiers[i].name) == 0) {
+			*tier = tiers[i].tier;
+			return CRAF_OK;
+		}
+	return craf_err(CRAF_USAGE, "-enc-min-tier: \"%s\" is not any, "
+			"kernel, engine, tee or hsm", arg);
+}
+
 /* The option as typed, without its dashes and its "=value" */
 bool craf_typed_exactly(const char *arg, const char *name)
 {
@@ -124,7 +169,8 @@ static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 {
 	if (strcmp(cmd, "info") == 0) {
 		if (out || drv->cipher_driver || drv->cipher_algo ||
-		    drv->any_driver || keys->enc_key || keys->enc_blob)
+		    drv->any_driver || drv->backend_opts || keys->enc_key ||
+		    keys->enc_blob)
 			return craf_err(CRAF_USAGE, "info: takes -in only");
 		return CRAF_OK;
 	}
@@ -152,9 +198,7 @@ static int check_options(const char *cmd, const struct craf_driver_opts *drv,
 	if (drv->any_driver)
 		return craf_err(CRAF_USAGE,
 				"seal: -any-driver is for unseal only");
-	if (!drv->cipher_driver && !drv->cipher_algo)
-		return craf_err(CRAF_USAGE,
-				"seal: -cipher-driver or -cipher-algo is required");
+	/* Whether a driver is needed, the key says: see craf_seal() */
 	if (drv->cipher_driver && drv->cipher_algo)
 		return craf_err(CRAF_USAGE, "seal: give -cipher-driver "
 				"or -cipher-algo, not both");
@@ -272,6 +316,8 @@ int main(int argc, char *argv[])
 		{ "any-driver",		no_argument,		NULL, 'n' },
 		{ "enc-key",		required_argument,	NULL, 'e' },
 		{ "enc-blob",		required_argument,	NULL, 'b' },
+		{ "backend",		required_argument,	NULL, 'k' },
+		{ "enc-min-tier",	required_argument,	NULL, 't' },
 		{ "help",		no_argument,		NULL, 'h' },
 		{ 0, 0, 0, 0 }
 	};
@@ -353,6 +399,18 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			keys.enc_blob = optarg;
+			break;
+		case 'k':
+			status = parse_backend(optarg, &drv.backend);
+			if (status)
+				return status;
+			drv.backend_opts = true;
+			break;
+		case 't':
+			status = parse_tier(optarg, &drv.min_tier);
+			if (status)
+				return status;
+			drv.backend_opts = true;
 			break;
 		case 'h':
 			usage(stdout);

@@ -26,6 +26,7 @@
 struct craf_key_opts {
 	const char *enc_key;		/* -enc-key */
 	const char *enc_blob;		/* seal -enc-blob */
+	bool keycrypt;			/* the key goes to keycrypt */
 };
 
 /* The key of an archive, ready for kc_cipher_open() */
