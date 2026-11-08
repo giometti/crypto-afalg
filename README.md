@@ -264,13 +264,14 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries; it decrypts the files of `openssl enc -pbkdf2`, and it computes the digests and checks the signatures of `openssl dgst`, from openssl's own command line:
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries, and prints an archive's header without decrypting it; it decrypts the files of `openssl enc -pbkdf2`, and it computes the digests and checks the signatures of `openssl dgst`, from openssl's own command line:
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
 $ craf unseal -enc-key @s,user,backup < data.craf > data.tar
 $ craf seal -cipher-driver cbc-aes-ce -enc-blob key.blob < data.tar > data.craf
 $ craf unseal < data.craf > data.tar
+$ craf info -in data.craf
 $ craf enc -d -in data.tar.enc -aes-256-cbc -pbkdf2 -kfile data.key > data.tar
 $ craf dgst -sha256 data.tar
 $ craf dgst -sha256 -verify sign.key -signature data.tar.sig data.tar

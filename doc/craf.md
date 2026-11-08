@@ -1,6 +1,6 @@
 # craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it; it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*) and computes the digests and checks the signatures of `openssl dgst` (below, *dgst*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, and prints the header of an archive (below, *info*); it also decrypts the files of `openssl enc -pbkdf2` (below, *enc -d*) and computes the digests and checks the signatures of `openssl dgst` (below, *dgst*). The cipher runs in the kernel, through [libkcrypto](libkcrypto.md) and `AF_ALG`, with a key taken from the keyring by serial, or loaded from the blob of a trusted key that the archive carries: either way the key of seal and unseal does not pass through craf's memory (that of enc -d does, below). seal and unseal therefore need a kernel 6.2 or newer with `KEYS`, and a libkcrypto that takes keyring keys (see `kc_key_serial_supported()`; crypto-afalg shows `-S|--keyserial` in its help exactly when it does): without them every seal and unseal exits with status 3.
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -47,6 +47,25 @@ The archive format, version 1, integers little-endian, a string being its length
 The first 12 bytes, `magic`, `version` and `hdr_len`, keep their place in every version, so that a reader tells an archive of another version from something else.
 
 The tests of seal and unseal need `keyctl`, `openssl` and `cbc(aes)` in the kernel; without them they are `Skipped`. They use the driver `-cipher-algo` chooses, or the one `CRAF_TEST_DRIVER` names, for a kernel whose preferred driver cannot be used through `AF_ALG`. The test that seals with a trusted key (`[trusted]`) creates one with the options of `new` in `CRAF_TEST_TRUSTED` (on a TPM 2.0 the parent key, for example `keyhandle=0x81000001`): without the variable it is `Skipped`, with the reason, where the key cannot be created; with it, a key that cannot be created is a failure. libkcrypto's test of trusted key blobs (`[blob-trusted]`) takes the same variable, in the same way.
+
+## info: the header of an archive
+
+`craf info [ -in <file> ]` prints the header of an archive, read from the file or from stdin, without decrypting it: no key, no driver and no `/proc/crypto` are needed, so it tells what an archive is when unseal cannot open it. One `name: value` line per field of the format, but `magic`, by the names the format gives them, on stdout:
+
+```bash
+$ craf info -in data.craf
+version: 1
+hdr_len: 56
+cipher_driver: cbc-aes-ce
+cipher_algo: cbc(aes)
+key_len: 32
+key_source: serial
+iv: 3f0c8e...
+```
+
+`iv` is in hex, 32 digits. An archive of key source `trusted` adds `blob_len: <n>`, the length of its blob: the blob itself is not printed: whoever has the trust source can load it and decrypt the archive, and the output of info is shared where the archive is not. info says what the header says, not that it is true: it checks the header as unseal does, not the driver against `/proc/crypto` nor the key, and reads nothing past the header, so an archive whose data are cut or changed is printed all the same. Besides `-help`, it takes `-in` only.
+
+The exit status is 0 when the header is printed; 1 when it is refused (not a craf archive, a truncated or malformed header), with nothing on stdout; 2 for a wrong usage; 3 when it could not be read or printed: an input or output error, an archive of a newer version or with a key source this craf does not know (nothing printed either).
 
 ## enc -d: the files of openssl enc
 
