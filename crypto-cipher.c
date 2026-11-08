@@ -412,6 +412,16 @@ void do_crypt(int argc, char *argv[])
 
 	c = open_cipher(algo, kkey, encrypt, iv, iv_len);
 
+	/*
+	 * A keyring key that brings its length (a keycrypt key) and has
+	 * another one would make another cipher than the one named
+	 */
+	if (kc_key_serial(kkey) && kc_cipher_key_len(c) &&
+	    kc_cipher_key_len(c) != algo_key_len(algo))
+		fatal("-S: the key is of %zu bytes, %s takes %zu",
+		      kc_cipher_key_len(c), algo_name(algo),
+		      (size_t) algo_key_len(algo));
+
 	if (generated_salt)
 		write_salt(salt);
 
