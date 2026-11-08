@@ -8,6 +8,9 @@ CRAF_KEY_GOOD=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 CRAF_KEY_BAD=1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
 CRAF_IV=a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
 
+# The archive as the tests build it, and how they run craf on it
+. craf-format.inc
+
 # Skipped, with the reason when there is one
 craf_skip () {	# [<reason>]
 	echo "Skipped${1:+ ($1)}"
@@ -18,11 +21,6 @@ craf_skip () {	# [<reason>]
 keyctl new_session > /dev/null 2>&1 || craf_skip
 key_serial || craf_skip "no keyring keys in libkcrypto"
 type openssl > /dev/null 2>&1 || craf_skip
-
-# <hex> as bytes
-craf_bytes () {	# <hex>
-	printf "$(printf %s "$1" | sed 's/../\\x&/g')"
-}
 
 # A user key in <keyring>, the session one by default, its serial on stdout
 craf_add_key () {	# <name> <hex> [<keyring>]
@@ -60,11 +58,6 @@ else
 	driver=$(craf_driver_of $NAME.probe)
 fi
 
-# A string of the header: its length in one byte, then its characters
-craf_str () {
-	printf "\\$(printf %03o ${#1})%s" "$1"
-}
-
 # The first usable skcipher driver of <algorithm> the kernel lists; one
 # built from a template is listed only once something has used it
 craf_listed_driver () {	# <algorithm>
@@ -82,41 +75,6 @@ craf_listed_driver () {	# <algorithm>
 		}' /proc/crypto
 }
 
-# A 16-bit integer, little-endian
-craf_u16 () {	# <value>
-	printf "\\$(printf %03o $(($1 % 256)))\\$(printf %03o $(($1 / 256)))"
-}
-
-# The header of version 1 with <iv>, as the format lays it out: of key
-# source serial, or trusted with <blob>
-craf_header () {	# <iv in hex> [<driver>] [<blob in hex>]
-	local drv=${2:-$driver} blob=$3
-	local len=$((46 + ${#drv}))
-
-	if [ -n "$blob" ]; then
-		len=$((len + 3 + ${#blob} / 2))
-	fi
-	printf 'AFALGARC\001\000'
-	craf_u16 $len
-	craf_str "$drv"
-	craf_str 'cbc(aes)'
-	printf '\040'
-	if [ -n "$blob" ]; then
-		craf_str trusted
-		craf_bytes $1
-		craf_u16 $((${#blob} / 2))
-		craf_bytes $blob
-	else
-		craf_str serial
-		craf_bytes $1
-	fi
-}
-
-# A fixed input: no byte below 0x20 but the last one, a newline
-craf_plain () {
-	seq -s ' ' 1 1000
-}
-
 # The archive of craf_plain with the good key and the fixed IV, by openssl
 craf_fixed_archive () {	# <file> [<driver>]
 	{
@@ -124,27 +82,4 @@ craf_fixed_archive () {	# <file> [<driver>]
 		craf_plain |
 			openssl enc -aes-256-cbc -K $CRAF_KEY_GOOD -iv $CRAF_IV
 	} > $1
-}
-
-# craf <arguments> on <input> must exit with <status> and end with
-# <reason>: the last line, so that a later check cannot answer for it
-craf_expect () {	# <status> <reason> <input> <arguments>...
-	local exp=$1 reason=$2 input=$3 rc=0
-	shift 3
-	craf "$@" < $input > /dev/null 2> $NAME.err || rc=$?
-	if [ $rc -ne $exp ] ||
-		! grep -qF -e "$reason" <<< "$(tail -n 1 $NAME.err)"; then
-		echo "craf $*: exit $rc, $(cat $NAME.err)"
-		fail=y
-	fi
-}
-
-# <file>, with the byte at <offset> replaced by <bytes> (as printf takes them)
-craf_patch () {	# <file> <offset> <bytes>
-	printf "$3" | dd of=$1 bs=1 seek=$2 conv=notrunc 2> /dev/null
-}
-
-# The byte at <offset> of <file> xor <mask>, as printf takes it
-craf_xor_byte () {	# <file> <offset> <mask>
-	printf '\\%03o' $(($(od -An -tu1 -j$2 -N1 $1) ^ $3))
 }

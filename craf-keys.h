@@ -50,6 +50,8 @@ struct craf_key_source {
 	int (*read_fields)(struct craf_rbuf *r, struct craf_keys *keys);
 	int (*unseal_keys)(const struct craf_key_opts *opts,
 			   struct craf_keys *keys);
+	/* craf info: what read_fields() read, one "name: value" a line */
+	void (*print_fields)(FILE *out, const struct craf_keys *keys);
 	void (*release)(struct craf_keys *keys);
 };
 

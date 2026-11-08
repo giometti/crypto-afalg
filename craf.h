@@ -141,5 +141,6 @@ extern int craf_seal(FILE *in, FILE *out, const struct craf_driver_opts *drv,
 extern int craf_unseal(FILE *in, FILE *out,
 		       const struct craf_driver_opts *drv,
 		       const struct craf_key_opts *keys);
+extern int craf_info(FILE *in, FILE *out);
 
 #endif /* CRAF_H */

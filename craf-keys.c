@@ -92,6 +92,10 @@ static int serial_read_fields(struct craf_rbuf *r, struct craf_keys *keys)
 	return CRAF_OK;
 }
 
+static void serial_print_fields(FILE *out, const struct craf_keys *keys)
+{
+}
+
 static void serial_release(struct craf_keys *keys)
 {
 }
@@ -103,6 +107,7 @@ static const struct craf_key_source serial_source = {
 	.write_fields	= serial_write_fields,
 	.read_fields	= serial_read_fields,
 	.unseal_keys	= serial_keys,
+	.print_fields	= serial_print_fields,
 	.release	= serial_release,
 };
 
@@ -242,6 +247,17 @@ static int trusted_unseal_keys(const struct craf_key_opts *opts,
 	return load_blob(keys->priv, NULL, &keys->enc);
 }
 
+/*
+ * The blob is the key for whoever has the trust source, and the output of
+ * info goes where the archive does not: its length only
+ */
+static void trusted_print_fields(FILE *out, const struct craf_keys *keys)
+{
+	const struct trusted *t = keys->priv;
+
+	fprintf(out, "blob_len: %u\n", (unsigned) t->len);
+}
+
 static void trusted_release(struct craf_keys *keys)
 {
 	free(keys->priv);
@@ -255,6 +271,7 @@ static const struct craf_key_source trusted_source = {
 	.write_fields	= trusted_write_fields,
 	.read_fields	= trusted_read_fields,
 	.unseal_keys	= trusted_unseal_keys,
+	.print_fields	= trusted_print_fields,
 	.release	= trusted_release,
 };
 

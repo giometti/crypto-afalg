@@ -2,7 +2,7 @@ TARGET = crypto-afalg
 OBJS = crypto-afalg.o crypto-cipher.o crypto-hash.o
 CRAF = craf
 CRAF_OBJS = craf.o craf-archive.o craf-keys.o craf-driver.o craf-seal.o \
-	craf-enc.o craf-dgst.o
+	craf-enc.o craf-dgst.o craf-info.o
 KCDM = kcdm
 KCDM_OBJS = kcdm.o
 KC = libkcrypto.so.0

@@ -38,6 +38,8 @@ static void usage(FILE *f)
 		"  unseal [ -in <file> ] [ -out <file> ]\n"
 		"       [ -cipher-driver <driver> | -any-driver ] [ -enc-key <key> ]\n"
 		"      decrypt an archive; -enc-key for one sealed with -enc-key\n"
+		"  info [ -in <file> ]\n"
+		"      print the header of an archive, without decrypting it\n"
 		"  enc -d [ -in <file> ] [ -out <file> ]\n"
 		"       -<openssl cipher> | -cipher-algo <cipher> [ -cipher-key-len <n> ]\n"
 		"       -pbkdf2 | -iter <n>  [ -md <hash> ]\n"
@@ -118,8 +120,14 @@ bool craf_exact_option(const struct option *options, const char *arg)
 }
 
 static int check_options(const char *cmd, const struct craf_driver_opts *drv,
-			 const struct craf_key_opts *keys)
+			 const struct craf_key_opts *keys, const char *out)
 {
+	if (strcmp(cmd, "info") == 0) {
+		if (out || drv->cipher_driver || drv->cipher_algo ||
+		    drv->any_driver || keys->enc_key || keys->enc_blob)
+			return craf_err(CRAF_USAGE, "info: takes -in only");
+		return CRAF_OK;
+	}
 	if (strcmp(cmd, "unseal") == 0) {
 		/* Whether -enc-key is needed, the archive says */
 		if (keys->enc_blob)
@@ -314,7 +322,8 @@ int main(int argc, char *argv[])
 		}
 		return craf_dgst(&dgst);
 	}
-	if (strcmp(cmd, "seal") != 0 && strcmp(cmd, "unseal") != 0)
+	if (strcmp(cmd, "seal") != 0 && strcmp(cmd, "unseal") != 0 &&
+	    strcmp(cmd, "info") != 0)
 		return craf_err(CRAF_USAGE, "unknown command \"%s\", see -help",
 				cmd);
 
@@ -357,7 +366,7 @@ int main(int argc, char *argv[])
 	if (optind < argc - 1)
 		return craf_err(CRAF_USAGE, "unexpected argument \"%s\"",
 				argv[optind + 1]);
-	status = check_options(cmd, &drv, &keys);
+	status = check_options(cmd, &drv, &keys, out_path);
 	if (status)
 		return status;
 	kf.path = keys.enc_blob;
@@ -380,6 +389,8 @@ open:
 		status = craf_enc(in, out, &enc);
 	else if (strcmp(cmd, "seal") == 0)
 		status = craf_seal(in, out, &drv, &keys);
+	else if (strcmp(cmd, "info") == 0)
+		status = craf_info(in, out);
 	else
 		status = craf_unseal(in, out, &drv, &keys);
 
