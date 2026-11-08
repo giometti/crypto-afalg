@@ -70,8 +70,32 @@ struct kc_backend {
 	void (*end)(struct kc_op *op);
 };
 
-/* The AF_ALG backend, the only one: no choice of backend is exposed */
+/* The AF_ALG backend, for every algorithm by name */
 extern const struct kc_backend kc_afalg_backend;
 #define KC_BACKEND		(&kc_afalg_backend)
+
+/*
+ * The keycrypt backend, for a cipher whose key is a keycrypt key: the
+ * algorithm and the backend that runs it are the key's own. An operation
+ * context, opened on the key by its serial, encrypting with the IV the
+ * kernel draws when iv is NULL; kc_keycrypt_open() gives KC_REFUSED, with
+ * EOPNOTSUPP, exactly when the key is not a keycrypt key (or the kernel
+ * has no keycrypt), and with ENOSYS where a filter refuses the command.
+ */
+#define KC_KEYCRYPT_BACKEND_MAX	16	/* characters of a backend's name */
+
+struct kc_kcrypt;
+
+extern int kc_keycrypt_open(struct kc_kcrypt **x, int32_t serial,
+			    int encrypt, const void *iv, unsigned int min_tier,
+			    struct kc_error *e);
+extern const char *kc_keycrypt_algo(const struct kc_kcrypt *x);
+extern const unsigned char *kc_keycrypt_iv(const struct kc_kcrypt *x);
+extern const char *kc_keycrypt_backend(const struct kc_kcrypt *x);
+/* Whole blocks, any number of them */
+extern int kc_keycrypt_update(struct kc_kcrypt *x, const void *in, void *out,
+			      size_t len, struct kc_error *e);
+extern int kc_keycrypt_final(struct kc_kcrypt *x, struct kc_error *e);
+extern void kc_keycrypt_close(struct kc_kcrypt *x);
 
 #endif /* KC_BACKEND_H */

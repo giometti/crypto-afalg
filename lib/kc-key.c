@@ -443,6 +443,33 @@ KC_EXPORT int kc_key_serial_supported(void)
 	return KC_BACKEND->key_serial;
 }
 
+KC_EXPORT int kc_key_is_keycrypt(const struct kc_key *k, struct kc_error *e)
+{
+	size_t tlen = strlen(KC_KEYCRYPT_TYPE);
+	char *buf;
+	bool keycrypt;
+	int err;
+
+	if (!k)
+		return kc_fail(e, KC_USAGE, EINVAL, "no key");
+	if (k->type != KC_KEY_SERIAL)
+		return kc_fail(e, KC_REFUSED, 0,
+			       "a key in clear is not a keycrypt key");
+	if (keyctl_describe_alloc(k->serial, &buf) < 0) {
+		err = errno;
+		return kc_fail(e, KC_FAILED, err,
+			       "cannot tell whether the key %d is a keycrypt key: %s",
+			       k->serial, strerror(err));
+	}
+	keycrypt = strncmp(buf, KC_KEYCRYPT_TYPE, tlen) == 0 &&
+		   buf[tlen] == ';';
+	free(buf);
+	if (!keycrypt)
+		return kc_fail(e, KC_REFUSED, 0,
+			       "the key %d is not a keycrypt key", k->serial);
+	return kc_ok(e);
+}
+
 KC_EXPORT void kc_key_free(struct kc_key *k)
 {
 	if (!k)

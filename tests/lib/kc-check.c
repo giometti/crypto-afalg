@@ -53,6 +53,11 @@ static void __attribute__((noreturn)) usage(void)
 		"    room bytes, the status of one more call\n"
 		"  cipher enc|dec <name> <key> <iv>: stdin in pieces of many\n"
 		"    sizes, the result on stdout; <iv> in hex\n"
+		"  cipher-backend <backend> enc|dec <name> <key> <iv> <tier>\n"
+		"    <meta file>: as cipher, through kc_cipher_open_backend()\n"
+		"    with <backend> auto, afalg, keycrypt or a number, and\n"
+		"    the minimum tier; <name> or <iv> \"-\" is NULL; the\n"
+		"    driver and the IV once open into <meta file>\n"
 		"  cipher-after enc|dec <name> <key> <iv>: after a final, the\n"
 		"    status of one more update\n"
 		"  blob-unload <blob> <name>: the status of a cipher opened\n"
@@ -332,8 +337,38 @@ static int hash(const char *name, const char *key, size_t room,
 	return status;
 }
 
-static int cipher(const char *dir, const char *name, const char *key,
-		  const char *iv_hex, struct kc_error *e)
+/* What the cipher runs with, into the meta file: its driver and its IV */
+static void write_meta(const char *path, const struct kc_cipher *c,
+		       size_t iv_len)
+{
+	unsigned char iv[KC_BLOCK_MAX];
+	struct kc_error e;
+	size_t i;
+	FILE *f;
+
+	f = fopen(path, "w");
+	if (!f || kc_cipher_iv(c, iv, sizeof(iv), &e)) {
+		perror(path);
+		exit(3);
+	}
+	fprintf(f, "driver: %s\niv: ", kc_cipher_driver(c));
+	for (i = 0; i < iv_len; i++)
+		fprintf(f, "%02x", iv[i]);
+	fprintf(f, "\n");
+	if (fclose(f)) {
+		perror(path);
+		exit(3);
+	}
+}
+
+/*
+ * kc_cipher_open_backend(): name "-" is NULL; iv "-" is NULL, an IV of 16
+ * bytes; the meta file, when given, gets the driver and the IV once open
+ */
+static int cipher_with(const char *dir, enum kc_backend_sel sel,
+		       const char *name, const char *key, const char *iv_hex,
+		       unsigned int min_tier, const char *meta,
+		       struct kc_error *e)
 {
 	unsigned char buf[PIECE_MAX], iv[64], *out;
 	struct kc_cipher *c = NULL;
@@ -343,11 +378,19 @@ static int cipher(const char *dir, const char *name, const char *key,
 
 	if (strcmp(dir, "enc") && strcmp(dir, "dec"))
 		usage();
-	iv_len = parse_hex(iv_hex, iv, sizeof(iv));
+	if (strcmp(iv_hex, "-") == 0)
+		iv_len = 16;
+	else
+		iv_len = parse_hex(iv_hex, iv, sizeof(iv));
 	status = make_key(key, &k, e);
 	if (!status)
-		status = kc_cipher_open(&c, name, k, strcmp(dir, "enc") == 0,
-					iv, iv_len, e);
+		status = kc_cipher_open_backend(&c, sel,
+						strcmp(name, "-") ? name : NULL,
+						k, strcmp(dir, "enc") == 0,
+						strcmp(iv_hex, "-") ? iv : NULL,
+						iv_len, min_tier, e);
+	if (!status && meta)
+		write_meta(meta, c, iv_len);
 	/* Exactly the room the library asks for, for AddressSanitizer */
 	while (!status && (n = read_piece(buf, &i)) > 0) {
 		out = xmalloc(n + iv_len);
@@ -366,6 +409,28 @@ static int cipher(const char *dir, const char *name, const char *key,
 	kc_cipher_free(c);
 	kc_key_free(k);
 	return status;
+}
+
+static int cipher(const char *dir, const char *name, const char *key,
+		  const char *iv_hex, struct kc_error *e)
+{
+	return cipher_with(dir, KC_BACKEND_AUTO, name, key, iv_hex, 0, NULL, e);
+}
+
+static int cipher_backend(char *argv[], struct kc_error *e)
+{
+	enum kc_backend_sel sel;
+
+	if (strcmp(argv[0], "auto") == 0)
+		sel = KC_BACKEND_AUTO;
+	else if (strcmp(argv[0], "afalg") == 0)
+		sel = KC_BACKEND_AFALG;
+	else if (strcmp(argv[0], "keycrypt") == 0)
+		sel = KC_BACKEND_KEYCRYPT;
+	else
+		sel = atoi(argv[0]);
+	return cipher_with(argv[1], sel, argv[2], argv[3], argv[4],
+			   strtoul(argv[5], NULL, 10), argv[6], e);
 }
 
 /* The key freed once the cipher is open, which must not need it */
@@ -737,6 +802,8 @@ int main(int argc, char *argv[])
 		e.status = KC_OK;
 	} else if (strcmp(argv[1], "cipher") == 0 && argc == 6)
 		status = cipher(argv[2], argv[3], argv[4], argv[5], &e);
+	else if (strcmp(argv[1], "cipher-backend") == 0 && argc == 9)
+		status = cipher_backend(argv + 2, &e);
 	else if (strcmp(argv[1], "cipher-after") == 0 && argc == 6)
 		status = cipher_after(argv[2], argv[3], argv[4], argv[5], &e);
 	else if (strcmp(argv[1], "pkey-query") == 0 && argc == 4)

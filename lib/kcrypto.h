@@ -127,17 +127,18 @@ extern int kc_key_raw(struct kc_key **k, const void *data, size_t len,
  * the library asks the kernel, and a key it cannot ask about, as one it
  * may not link, makes the answer unknown. That, and a key of the keyrings
  * that cannot be described, is KC_FAILED with its errno, never a pass.
- * A cipher or a hash opened with a keyring key is KC_FAILED where
- * kc_key_serial_supported() is 0 (EOPNOTSUPP) or the kernel is older than
- * Linux 6.2 (its errno).
+ * A cipher or a hash opened through AF_ALG with a keyring key is
+ * KC_FAILED where kc_key_serial_supported() is 0 (EOPNOTSUPP) or the
+ * kernel is older than Linux 6.2 (its errno); keycrypt needs neither.
  */
 extern int kc_key_spec(struct kc_key **k, const char *spec,
 		       struct kc_error *e);
 
 /*
- * Whether this library can hand the kernel a keyring key: 1 when it was
+ * Whether this library can hand AF_ALG a keyring key: 1 when it was
  * built with an <linux/if_alg.h> that defines ALG_SET_KEY_BY_KEY_SERIAL,
- * 0 otherwise. The kernel takes one from Linux 6.2.
+ * 0 otherwise. The kernel takes one from Linux 6.2. A keycrypt key does
+ * not go through AF_ALG and does not need it.
  */
 extern int kc_key_serial_supported(void);
 
@@ -250,6 +251,95 @@ extern int kc_cipher_final(struct kc_cipher *c, void *out, size_t *out_len,
 
 /* Clears and frees; NULL is ignored */
 extern void kc_cipher_free(struct kc_cipher *c);
+
+/*
+ * Which part of the kernel runs a cipher. AUTO: a keyring key by serial,
+ * with an IV of 16 bytes, goes to keycrypt when kc_key_is_keycrypt() says
+ * it is a keycrypt key, any other key to AF_ALG (but one revoked, expired
+ * or gone, a failure); AFALG and KEYCRYPT try that one only, and give its
+ * answer: a key of another type is KC_USAGE (EOPNOTSUPP) for KEYCRYPT,
+ * which does not ask keycrypt, and what setting the key gives for AFALG.
+ */
+enum kc_backend_sel {
+	KC_BACKEND_AUTO = 0,
+	KC_BACKEND_AFALG = 1,
+	KC_BACKEND_KEYCRYPT = 2,
+};
+
+/*
+ * The tiers of keycrypt keys, as its interface numbers them, and 0 for no
+ * minimum but the system's
+ */
+#define KC_TIER_ANY		0
+#define KC_TIER_KERNEL		10
+#define KC_TIER_ENGINE		15
+#define KC_TIER_TEE		20
+#define KC_TIER_HSM		30
+
+/* The type of a keycrypt key in the keyring */
+#define KC_KEYCRYPT_TYPE		"keycrypt"
+
+/*
+ * Whether the kernel runs the key through keycrypt, from its type
+ * (KEYCTL_DESCRIBE, which needs the key's View permission): KC_OK for a
+ * key of type keycrypt; KC_REFUSED for a key of another type and a key in
+ * clear; KC_FAILED with the kernel's errno for a key that cannot be
+ * described (EACCES for one the caller may not view; revoked, expired,
+ * gone); KC_USAGE for no key.
+ */
+extern int kc_key_is_keycrypt(const struct kc_key *k, struct kc_error *e);
+
+/* How kc_cipher_driver() names a cipher keycrypt runs: <prefix><backend> */
+#define KC_KEYCRYPT_DRIVER_PREFIX	"keycrypt@"
+/* The IV of every keycrypt key, the one KC_BACKEND_AUTO asks keycrypt with */
+#define KC_KEYCRYPT_IV_LEN		16
+
+/*
+ * kc_cipher_open() with the backend chosen by sel, and min_tier, a KC_TIER_*
+ * value below which a keycrypt key is refused (0: the system tier
+ * only); kc_cipher_open() is this one with AUTO and 0. In encryption iv
+ * may be NULL: the backend draws it (the kernel for keycrypt, getrandom()
+ * for AF_ALG), and kc_cipher_iv() gives it; given, keycrypt takes it as
+ * the caller's IV, which must then be unpredictable to whoever chooses the
+ * data. In decryption iv is required.
+ *
+ * With keycrypt the algorithm is the key's: name may be NULL or the
+ * key's algorithm (cbc(aes) for an aes256-cbc key), and iv_len must be 16;
+ * anything else, a driver in particular, is KC_USAGE. AF_ALG needs name
+ * (KC_USAGE, EDESTADDRREQ, without it) and takes no min_tier (KC_USAGE).
+ * A key in clear goes to AF_ALG only. Keycrypt is asked only for a key of
+ * its type, and with KEYCRYPT for one kc_key_is_keycrypt() cannot view;
+ * KEYCRYPT refuses a key of another type without asking (KC_USAGE,
+ * EOPNOTSUPP). A key that cannot be described goes in AUTO to AF_ALG,
+ * which answers for it, unless it is revoked, expired or gone: then, and
+ * with KEYCRYPT for any failure but EACCES, KC_FAILED with that errno.
+ * Keycrypt's refusals are KC_FAILED with its errno (but EOPNOTSUPP for a
+ * key it was asked about without knowing its type: KC_USAGE): ENOSYS
+ * (a filter refuses the command), EKEYREJECTED (the key's purpose does
+ * not allow the operation), EPERM (its tier is below min_tier or the
+ * system's, or a policy), ENODEV (its backend is gone or has none of the
+ * operations), EACCES, ENOMEM (no free context in its backend),
+ * EKEYREVOKED, EKEYEXPIRED, ENOKEY; an IV the kernel does not give back,
+ * or not the one given, and a context opened for another operation or
+ * minimum tier than asked, are KC_FAILED (EPROTO).
+ */
+extern int kc_cipher_open_backend(struct kc_cipher **c,
+				  enum kc_backend_sel sel, const char *name,
+				  const struct kc_key *k, int encrypt,
+				  const void *iv, size_t iv_len,
+				  unsigned int min_tier, struct kc_error *e);
+
+/* The IV the cipher was opened with, iv_len bytes, into iv of len bytes */
+extern int kc_cipher_iv(const struct kc_cipher *c, void *iv, size_t len,
+			struct kc_error *e);
+
+/*
+ * What runs the cipher, as a reader of an archive would name it again: the
+ * AF_ALG name it was opened with, or "keycrypt@<backend>" (the backend of
+ * the key, as the kernel names it: [a-z0-9_-], at most 16 characters).
+ * Valid until kc_cipher_free().
+ */
+extern const char *kc_cipher_driver(const struct kc_cipher *c);
 
 /*
  * An asymmetric keyring key, by its serial, with the parameters of keyctl

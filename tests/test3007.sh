@@ -41,8 +41,13 @@ expect 0 - blob-twice $blob
 
 # Unloaded, the key is out of the keyring, and a second unload has
 # nothing to do; one gone already is a failure to say
-expect 3 'kc-check: status=3 errnum=126: setsockopt(ALG_SET_KEY_BY_KEY_SERIAL): Required key not available' \
-	blob-unload $blob "$cbc"
+rc=0
+kc-check blob-unload $blob "$cbc" 2> $NAME.err || rc=$?
+if [ $rc -ne 3 ] || ! grep -qx 'kc-check: status=3 errnum=126: key [0-9]*: Required key not available' \
+	$NAME.err; then
+	echo "kc-check blob-unload: exit $rc, $(cat $NAME.err)"
+	fail=y
+fi
 rc=0
 kc-check blob-gone $blob 2> $NAME.err || rc=$?
 if [ $rc -ne 3 ] || ! grep -qx 'kc-check: status=3 errnum=126: cannot remove the key [0-9]*: Required key not available' \

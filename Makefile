@@ -8,7 +8,7 @@ KCDM_OBJS = kcdm.o
 KC = libkcrypto.so.0
 KC_OBJS = lib/kc-error.o lib/kc-driver.o lib/kc-key.o lib/kc-hash.o \
 	lib/kc-cipher.o lib/kc-openssl.o lib/kc-pkey.o lib/kc-x509.o \
-	lib/kc-dm.o lib/backend/kc-afalg.o
+	lib/kc-dm.o lib/backend/kc-afalg.o lib/backend/kc-keycrypt.o
 KC_CHECK = kc-check
 KC_CHECK_OBJS = tests/lib/kc-check.o
 DEPS := $(OBJS:.o=.d) $(CRAF_OBJS:.o=.d) $(KCDM_OBJS:.o=.d) \
