@@ -64,9 +64,12 @@ dgst_expect 2 '-verify-key: a key of type "user", only asymmetric verifies' \
 dgst_expect 3 "dgst: the key cannot be used with \"enc=pkcs1 hash=sha256\"" \
 	-verify-key $u -signature $NAME.sig $NAME.in
 
-# A key that is not there, a spec that names two: as for -enc-key
-dgst_expect 3 '-verify-key: cannot get ID for asymmetric key id:00 in keyring @s' \
-	-verify-key "@s,asymmetric,id:00" -signature $NAME.sig $NAME.in
+# A key that is not there, a spec that names two: as for -enc-key. The
+# kernel matches id: on the tail of a key's identifiers, so the absent key
+# is the SKID with its last byte changed
+none=${skid%??}$(printf %02x $((0x${skid: -2} ^ 0xff)))
+dgst_expect 3 "-verify-key: cannot get ID for asymmetric key id:$none in keyring @s" \
+	-verify-key "@s,asymmetric,id:$none" -signature $NAME.sig $NAME.in
 keyctl padd asymmetric "" @s < $NAME.two > /dev/null
 dgst_expect 2 "-verify-key: more than one asymmetric key id:$skid in keyring @s" \
 	-verify-key "@s,asymmetric,id:$skid" -signature $NAME.sig $NAME.in
