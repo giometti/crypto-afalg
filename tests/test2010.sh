@@ -27,8 +27,15 @@ same_as_openssl () {	# <reason> <arguments of the passphrase>...
 	fi
 }
 
-# A wrong passphrase: every block but the last, a wrong padding
-cp $NAME.good $NAME.enc
+# A wrong passphrase: every block but the last, a wrong padding. With a
+# random salt the last block is a valid padding about once in 256: encrypt
+# again until openssl refuses it
+for try in 1 2 3 4; do
+	openssl enc -e -aes-256-cbc -pbkdf2 -kfile $NAME.key \
+		< $NAME.in > $NAME.enc
+	openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:wrong \
+		< $NAME.enc > /dev/null 2>&1 || break
+done
 same_as_openssl 'bad decrypt (wrong padding)' -pass pass:wrong
 
 # Cut inside the data, or after the header: every whole block
