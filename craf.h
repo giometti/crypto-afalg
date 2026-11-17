@@ -94,6 +94,9 @@ struct craf_enc_opts {
 	int pass_fd;			/* of -pass fd:, -1 for none */
 	const char *enc_key;		/* -enc-key, in place of a passphrase */
 	const char *iv;			/* -iv, in hex, with -enc-key */
+	enum kc_backend_sel backend;	/* -backend, KC_BACKEND_AUTO if not */
+	unsigned int min_tier;		/* -enc-min-tier, 0 if not given */
+	bool backend_opts;		/* either given, not for a passphrase */
 };
 
 /* What the command line says to dgst */

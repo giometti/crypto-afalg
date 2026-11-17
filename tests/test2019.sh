@@ -107,4 +107,29 @@ keyctl revoke $kr
 enc_expect 3 "-enc-key: cannot describe key $kr: Key has been revoked" $NAME.in \
 	-aes-256-cbc -enc-key $kr -iv $CRAF_IV
 
+# -backend and -enc-min-tier, as for seal: auto and afalg take a key of
+# another type to AF_ALG, keycrypt refuses it, and a minimum tier is for
+# a keycrypt key only
+for b in auto afalg; do
+	craf enc "${ek[@]}" -backend $b < $NAME.in 2> /dev/null |
+		cmp -s - $NAME.ref || fail=y
+done
+craf enc "${ek[@]}" -enc-min-tier any < $NAME.in 2> /dev/null |
+	cmp -s - $NAME.ref || fail=y
+enc_expect 2 "enc: the key $good is not a keycrypt key" \
+	$NAME.in "${ek[@]}" -backend keycrypt
+keycrypt_not_asked
+enc_expect 2 '-iv: "a0a1a2a3a4a5a6a7" is not 32 hex digits' $NAME.in \
+	-aes-256-cbc -enc-key $good -iv a0a1a2a3a4a5a6a7 -backend keycrypt
+enc_expect 2 'enc: a minimum tier is for keycrypt keys, and the key goes to AF_ALG' \
+	$NAME.in "${ek[@]}" -enc-min-tier tee
+for opt in '-backend auto' '-enc-min-tier any'; do
+	enc_expect 2 'enc: -backend and -enc-min-tier are for -enc-key' \
+		$NAME.in -d -aes-256-cbc -pbkdf2 -k x $opt
+done
+enc_expect 2 '-backend: "openssl" is not auto, afalg or keycrypt' $NAME.in \
+	"${ek[@]}" -backend openssl
+enc_expect 2 '-enc-min-tier: "top" is not any, kernel, engine, tee or hsm' \
+	$NAME.in "${ek[@]}" -enc-min-tier top
+
 . test-end.inc

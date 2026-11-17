@@ -122,17 +122,43 @@ craf_expect 2 'enc: -enc-key is a key of 32 bytes, -aes-128-cbc takes 16 here' \
 craf_expect 2 'is of cbc(aes), with its own backend: "cbc-aes-none" is not for it' \
 	$NAME.in enc -aes-256-cbc -cipher-driver cbc-aes-none -enc-key $kx -iv $iv
 
-# A keycrypt key the caller may not view: craf cannot read its type, so
-# it goes to AF_ALG, which cannot describe it either
+# -backend keycrypt runs the same key, and a keycrypt key the caller may
+# not view, which craf cannot describe for AF_ALG, runs only with it;
+# -backend afalg takes no keycrypt key
+craf enc -backend keycrypt -d -aes-256-cbc -enc-key $kx -iv $iv \
+	< $NAME.ek 2> /dev/null | cmp -s - $NAME.in || fail=y
 add kv $NAME-v encrypt,decrypt
 keyctl setperm $kv 0x08000000
 if keyctl describe $kv > /dev/null 2>&1; then
 	echo "keyctl setperm: the key $kv can still be viewed"
 	fail=y
 fi
+craf enc -backend keycrypt -e -aes-256-cbc -enc-key $kv -iv $iv \
+	< $NAME.in > $NAME.ev || fail=y
+craf enc -backend keycrypt -d -aes-256-cbc -enc-key $kv -iv $iv \
+	< $NAME.ev 2> /dev/null | cmp -s - $NAME.in || fail=y
+
+# The same for seal; unseal of a keycrypt archive needs no -backend
+craf seal -backend keycrypt -enc-key $kv < $NAME.in > $NAME.sv || fail=y
+craf unseal -enc-key $kv < $NAME.sv | cmp -s - $NAME.in || fail=y
+
+# -enc-min-tier, as for seal: the key's tier and the system's hold
+craf enc -enc-min-tier any -d -aes-256-cbc -enc-key $kx -iv $iv \
+	< $NAME.ek 2> /dev/null | cmp -s - $NAME.in || fail=y
+craf enc -enc-min-tier $tier -d -aes-256-cbc -enc-key $kx -iv $iv \
+	< $NAME.ek 2> /dev/null | cmp -s - $NAME.in || fail=y
+craf seal -enc-key $kx -enc-min-tier $tier < $NAME.in |
+	craf unseal -enc-key $kx -enc-min-tier $tier | cmp -s - $NAME.in ||
+	fail=y
+if [ "$tier" != hsm ]; then
+	craf_expect 3 "keycrypt, key $kx: not permitted: the tier of the key is below the minimum asked" \
+		$NAME.in enc -enc-min-tier hsm -aes-256-cbc -enc-key $kx -iv $iv
+fi
 if [ -n "$driver" ]; then
 	craf_expect 3 "-enc-key: cannot describe key $kv: Permission denied" \
 		$NAME.in enc -aes-256-cbc -enc-key $kv -iv $iv
+	craf_expect 3 'enc: cannot open' $NAME.in enc -backend afalg \
+		-aes-256-cbc -enc-key $kx -iv $iv
 fi
 
 # A key of a known value: the data are AES-256-CBC that openssl and

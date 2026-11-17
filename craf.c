@@ -53,6 +53,7 @@ static void usage(FILE *f)
 		"  enc [ -e | -d ] [ -in <file> ] [ -out <file> ]\n"
 		"       -<openssl cipher> | -cipher-algo <cipher> [ -cipher-key-len <n> ]\n"
 		"       -enc-key <key> -iv <hex> [ -cipher-driver <driver> ]\n"
+		"       [ -backend auto|afalg|keycrypt ] [ -enc-min-tier <tier> ]\n"
 		"      encrypt or decrypt as openssl enc -K <hex> -iv <hex>, the key\n"
 		"      a keyring key\n"
 		"  dgst [ -<hash> | -digest-algo <hash> ] [ -hex | -binary ]\n"

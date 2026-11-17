@@ -187,6 +187,8 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 		{ "cipher-driver",	required_argument,	NULL, 'D' },
 		{ "enc-key",		required_argument,	NULL, 'E' },
 		{ "iv",			required_argument,	NULL, 'v' },
+		{ "backend",		required_argument,	NULL, 'b' },
+		{ "enc-min-tier",	required_argument,	NULL, 't' },
 		{ "help",		no_argument,		NULL, 'h' },
 		/* What openssl enc takes and craf enc does not */
 		{ "a",			no_argument,		NULL, 'U' },
@@ -256,6 +258,18 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 			break;
 		case 'v':
 			o->iv = optarg;
+			break;
+		case 'b':
+			status = craf_parse_backend(optarg, &o->backend);
+			if (status)
+				return status;
+			o->backend_opts = true;
+			break;
+		case 't':
+			status = craf_parse_tier(optarg, &o->min_tier);
+			if (status)
+				return status;
+			o->backend_opts = true;
 			break;
 		case 's':
 			salt = true;
@@ -333,6 +347,9 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 		return craf_err(CRAF_USAGE, "enc: -enc-key needs -iv");
 	if (!o->enc_key && o->iv)
 		return craf_err(CRAF_USAGE, "enc: -iv is for -enc-key");
+	if (!o->enc_key && o->backend_opts)
+		return craf_err(CRAF_USAGE, "enc: -backend and -enc-min-tier are "
+				"for -enc-key");
 	if (!o->enc_key && !o->decrypt)
 		return craf_err(CRAF_USAGE, "enc: craf encrypts only with "
 				"-enc-key, give -d");
@@ -748,7 +765,8 @@ static int key_len_err(const struct craf_enc_opts *o, size_t key_len)
  * it is opened first, as the library does in AUTO, where it is of the
  * type keycrypt and -iv is of the IV such a key takes; a key whose type
  * cannot be read goes to AF_ALG, which describes it in its turn. *c
- * stays NULL for a key that is none.
+ * stays NULL for a key that is none. With -backend keycrypt the library
+ * decides, and the IV must be one keycrypt takes.
  */
 static int open_keycrypt(struct craf_enc_opts *o, const struct kc_key *k,
 			 struct kc_cipher **c)
@@ -760,12 +778,16 @@ static int open_keycrypt(struct craf_enc_opts *o, const struct kc_key *k,
 	int status;
 
 	*c = NULL;
-	if (!hex_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN) ||
-	    kc_key_is_keycrypt(k, &e) != KC_OK)
+	if (o->backend == KC_BACKEND_KEYCRYPT) {
+		status = parse_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN);
+		if (status)
+			return status;
+	} else if (!hex_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN) ||
+		   kc_key_is_keycrypt(k, &e) != KC_OK)
 		return CRAF_OK;
 	status = kc_cipher_open_backend(c, KC_BACKEND_KEYCRYPT, name, k,
 					!o->decrypt, iv, KC_KEYCRYPT_IV_LEN,
-					0, &e);
+					o->min_tier, &e);
 	if (status == KC_USAGE)
 		return craf_err(CRAF_USAGE, "enc: %s", e.msg);
 	if (status)
@@ -803,7 +825,8 @@ static int open_afalg(struct craf_enc_opts *o, const struct kc_key *k,
 	if (status)
 		return status;
 	status = kc_cipher_open_backend(c, KC_BACKEND_AFALG, name, k,
-					!o->decrypt, iv, iv_len, 0, &e);
+					!o->decrypt, iv, iv_len, o->min_tier,
+					&e);
 	if (status == KC_REFUSED)
 		return craf_err(CRAF_FAILED, "enc: %s not available: %s",
 				name, strerror(e.errnum));
@@ -829,9 +852,9 @@ static int enc_key(FILE *in, FILE *out, struct craf_enc_opts *o)
 	status = check_portable(o);
 	if (!status)
 		status = craf_find_key("-enc-key", o->enc_key, &k);
-	if (!status)
+	if (!status && o->backend != KC_BACKEND_AFALG)
 		status = open_keycrypt(o, k, &c);
-	if (!status && !c)
+	if (!status && !c && o->backend != KC_BACKEND_KEYCRYPT)
 		status = open_afalg(o, k, &c);
 	kc_key_free(k);
 	if (!status)
