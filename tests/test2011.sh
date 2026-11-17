@@ -12,8 +12,10 @@ openssl enc -e -aes-256-cbc -pbkdf2 -kfile $NAME.key < $NAME.in > $NAME.enc
 ok=(-aes-256-cbc -pbkdf2 -kfile $NAME.key)
 
 # Wrong usage, exit status 2
-enc_expect 2 'craf only decrypts, give -d' $NAME.enc "${ok[@]}"
-enc_expect 2 'craf only decrypts, give -d' $NAME.enc -d -e "${ok[@]}"
+enc_expect 2 'craf encrypts only with -enc-key, give -d' $NAME.enc "${ok[@]}"
+enc_expect 2 'craf encrypts only with -enc-key, give -d' $NAME.enc -d -e \
+	"${ok[@]}"
+enc_expect 2 'enc: -iv is for -enc-key' $NAME.enc -d "${ok[@]}" -iv 00
 enc_expect 2 'a cipher is required' $NAME.enc -d -pbkdf2 -kfile $NAME.key
 enc_expect 2 'give -aes-256-cbc or -cipher-algo, not both' $NAME.enc -d \
 	"${ok[@]}" -cipher-algo 'cbc(aes)'
@@ -26,7 +28,7 @@ enc_expect 2 '-iter: "0" is not a count of 1 or more' $NAME.enc -d \
 	"${ok[@]}" -iter 0
 enc_expect 2 '-cipher-key-len: "65" is not 1 to 64' $NAME.enc -d \
 	-cipher-algo 'cbc(aes)' -cipher-key-len 65 -pbkdf2 -kfile $NAME.key
-for opt in -a -nosalt -nopad -p -P -v -none -z '-K 00' '-iv 00' '-S 00'; do
+for opt in -a -nosalt -nopad -p -P -v -none -z '-K 00' '-S 00'; do
 	enc_expect 2 "enc: ${opt%% *} is not supported by craf" $NAME.enc \
 		-d "${ok[@]}" $opt
 done
@@ -105,12 +107,12 @@ if kc-check available skcipher 'cbc(cast5)' 2> /dev/null; then
 fi
 
 # What could not be done, exit status 3: a mode the kernel does not
-# have, one craf does not decrypt yet, a hash the kernel does not have
+# have, one craf does not run yet, a hash the kernel does not have
 for algo in 'cfb(aes)' 'ofb(aes)' 'ecb(aes)' 'ctr(aes)' 'cts(cbc(aes))'; do
 	rc=0
 	kc-check available skcipher "$algo" 2> /dev/null || rc=$?
 	if [ $rc -eq 0 ]; then
-		enc_expect 3 "craf does not decrypt $algo yet" $NAME.enc -d \
+		enc_expect 3 "craf does not run $algo yet" $NAME.enc -d \
 			-cipher-algo "$algo" -cipher-key-len 32 -pbkdf2 \
 			-kfile $NAME.key
 	else

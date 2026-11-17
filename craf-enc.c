@@ -26,6 +26,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "craf.h"
+#include "craf-keys.h"
 
 /* How much of the first line openssl takes: -kfile, then file: and fd: */
 #define KFILE_MAX		127
@@ -184,13 +185,14 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 		{ "cipher-algo",	required_argument,	NULL, 'a' },
 		{ "cipher-key-len",	required_argument,	NULL, 'l' },
 		{ "cipher-driver",	required_argument,	NULL, 'D' },
+		{ "enc-key",		required_argument,	NULL, 'E' },
+		{ "iv",			required_argument,	NULL, 'v' },
 		{ "help",		no_argument,		NULL, 'h' },
 		/* What openssl enc takes and craf enc does not */
 		{ "a",			no_argument,		NULL, 'U' },
 		{ "base64",		no_argument,		NULL, 'U' },
 		{ "nosalt",		no_argument,		NULL, 'U' },
 		{ "K",			required_argument,	NULL, 'U' },
-		{ "iv",			required_argument,	NULL, 'U' },
 		{ "S",			required_argument,	NULL, 'U' },
 		{ "nopad",		no_argument,		NULL, 'U' },
 		{ "p",			no_argument,		NULL, 'U' },
@@ -204,6 +206,7 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 	enum craf_pass_from key_from = CRAF_PASS_NONE;
 	const char *word, *key = NULL, *spec = NULL;
 	int opt, idx, prev, ret, status;
+	bool salt = false;
 	long v;
 
 	memset(o, 0, sizeof(*o));
@@ -246,9 +249,16 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 			break;
 		case 'm':
 			o->md = optarg;
+			o->md_given = true;
+			break;
+		case 'E':
+			o->enc_key = optarg;
+			break;
+		case 'v':
+			o->iv = optarg;
 			break;
 		case 's':
-			warn("-salt has no effect when decrypting");
+			salt = true;
 			break;
 		case 'f':
 			key_from = CRAF_PASS_KFILE;
@@ -307,9 +317,25 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 	if (optind < argc)
 		return craf_err(CRAF_USAGE, "unexpected argument \"%s\"",
 				argv[optind]);
+	if (salt)
+		warn("-salt has no effect %s", o->decrypt ?
+		     "when decrypting" : "with -enc-key");
 
-	if (!o->decrypt)
-		return craf_err(CRAF_USAGE, "enc: craf only decrypts, give -d");
+	/*
+	 * A key of the keyring is the key, as -K is for openssl: no
+	 * passphrase, no derivation, and the IV is the caller's
+	 */
+	if (o->enc_key && (key_from != CRAF_PASS_NONE || spec || o->pbkdf2 ||
+			   o->md_given))
+		return craf_err(CRAF_USAGE, "enc: -enc-key is the key: -pbkdf2, "
+				"-iter, -md, -k, -kfile and -pass are not for it");
+	if (o->enc_key && !o->iv)
+		return craf_err(CRAF_USAGE, "enc: -enc-key needs -iv");
+	if (!o->enc_key && o->iv)
+		return craf_err(CRAF_USAGE, "enc: -iv is for -enc-key");
+	if (!o->enc_key && !o->decrypt)
+		return craf_err(CRAF_USAGE, "enc: craf encrypts only with "
+				"-enc-key, give -d");
 	if (o->openssl_name && o->cipher_algo)
 		return craf_err(CRAF_USAGE, "enc: give -%s or -cipher-algo, "
 				"not both", o->openssl_name);
@@ -333,6 +359,9 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 	if (!*o->md || strlen(o->md) > MD_MAX)
 		return craf_err(CRAF_USAGE, "-md: the length must be 1 to %d",
 				MD_MAX);
+	if (o->enc_key)
+		return o->cipher_driver ?
+			craf_check_driver_name(o->cipher_driver) : CRAF_OK;
 	if (!o->pbkdf2)
 		return craf_err(CRAF_USAGE, "enc: only -pbkdf2 (or -iter) is "
 				"supported, not the deprecated derivation");
@@ -398,8 +427,8 @@ static int check_portable(const struct craf_enc_opts *o)
 
 /*
  * The one place where the shape of the cipher is chosen, from its mode
- * and the sizes the kernel gives: CBC is what craf decrypts, any other
- * mode is not yet. A driver named is the only name bound, as in seal.
+ * and the sizes the kernel gives: CBC is what craf runs, any other mode
+ * is not yet. A driver named is the only name bound, as in seal.
  */
 static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
 {
@@ -436,8 +465,8 @@ static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
 	}
 	if (len != 3 || strncmp(mode, "cbc", 3) != 0 || block < 2 ||
 	    *iv_len != block)
-		return craf_err(CRAF_FAILED, "enc: craf does not decrypt %s "
-				"yet", o->kname);
+		return craf_err(CRAF_FAILED, "enc: craf does not run %s yet",
+				o->kname);
 
 	if (o->key_len == 0 && key_min != key_max && o->openssl_name)
 		return craf_err(CRAF_USAGE, "enc: %s takes %zu to %zu bytes "
@@ -679,6 +708,90 @@ static int stream(struct kc_cipher *c, FILE *in, FILE *out)
 	return write_output(out, data, len);
 }
 
+/* Exactly iv_len bytes in hex into iv, false otherwise, saying nothing */
+static bool hex_iv(const char *hex, uint8_t *iv, size_t iv_len)
+{
+	size_t i;
+
+	if (strlen(hex) != 2 * iv_len)
+		return false;
+	for (i = 0; i < 2 * iv_len; i++)
+		if (!isxdigit((unsigned char) hex[i]))
+			return false;
+	for (i = 0; i < iv_len; i++)
+		sscanf(hex + 2 * i, "%2hhx", &iv[i]);
+	return true;
+}
+
+/* -iv: exactly the cipher's IV in hex; openssl pads a short one with zeros */
+static int parse_iv(const char *hex, uint8_t *iv, size_t iv_len)
+{
+	if (!hex_iv(hex, iv, iv_len))
+		return craf_err(CRAF_USAGE, "-iv: \"%s\" is not %zu hex digits",
+				hex, 2 * iv_len);
+	return CRAF_OK;
+}
+
+/*
+ * A keyring key through AF_ALG, with the shape of the cipher the kernel
+ * gives. A key whose length cannot be read back (logon, trusted) is
+ * taken by the kernel as it is, so a wrong one makes another cipher: a
+ * warning says so.
+ */
+static int open_afalg(struct craf_enc_opts *o, const struct kc_key *k,
+		      struct kc_cipher **c)
+{
+	const char *name = o->cipher_driver ? o->cipher_driver : o->kname;
+	uint8_t iv[KC_BLOCK_MAX];
+	struct kc_error e;
+	size_t iv_len;
+	bool checked;
+	int status;
+
+	status = cipher_shape(o, &iv_len);
+	if (!status)
+		status = parse_iv(o->iv, iv, iv_len);
+	if (!status)
+		status = craf_check_user_key("-enc-key", k, o->key_len,
+					     &checked);
+	if (status)
+		return status;
+	status = kc_cipher_open_backend(c, KC_BACKEND_AFALG, name, k,
+					!o->decrypt, iv, iv_len, 0, &e);
+	if (status == KC_REFUSED)
+		return craf_err(CRAF_FAILED, "enc: %s not available: %s",
+				name, strerror(e.errnum));
+	if (status == KC_USAGE)
+		return craf_err(CRAF_USAGE, "enc: %s", e.msg);
+	if (status)
+		return craf_err(CRAF_FAILED, "enc: cannot open %s: %s", name,
+				e.msg);
+	if (!checked)
+		warn("-enc-key: the length of the key cannot be read: "
+		     "%zu bytes are needed, and the kernel takes another "
+		     "length as it is", o->key_len);
+	return CRAF_OK;
+}
+
+/* As openssl enc -K -iv, the key a keyring key */
+static int enc_key(FILE *in, FILE *out, struct craf_enc_opts *o)
+{
+	struct kc_cipher *c = NULL;
+	struct kc_key *k = NULL;
+	int status;
+
+	status = check_portable(o);
+	if (!status)
+		status = craf_find_key("-enc-key", o->enc_key, &k);
+	if (!status)
+		status = open_afalg(o, k, &c);
+	kc_key_free(k);
+	if (!status)
+		status = stream(c, in, out);
+	kc_cipher_free(c);
+	return status;
+}
+
 int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o)
 {
 	uint8_t hdr[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
@@ -690,6 +803,8 @@ int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o)
 	size_t iv_len, n;
 	int status;
 
+	if (o->enc_key)
+		return enc_key(in, out, o);
 	status = cipher_shape(o, &iv_len);
 	if (!status)
 		status = check_pass_input(o, in);

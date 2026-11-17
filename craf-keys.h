@@ -59,9 +59,12 @@ struct craf_key_source {
 /* A keyring key by its spec or serial, as the option opt gives it */
 extern int craf_find_key(const char *opt, const char *spec,
 			 struct kc_key **key);
-/* A user key, which can be read back, must be of want bytes */
+/*
+ * A user key, which can be read back, must be of want bytes; *checked,
+ * when not NULL, says whether the key was one
+ */
 extern int craf_check_user_key(const char *opt, const struct kc_key *key,
-			       size_t want);
+			       size_t want, bool *checked);
 extern int craf_seal_source(const struct craf_key_opts *opts,
 			    const struct craf_key_source **src);
 extern int craf_unseal_key_opts(const struct craf_key_source *src,

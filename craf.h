@@ -88,9 +88,12 @@ struct craf_enc_opts {
 	bool pbkdf2;
 	long iter;			/* 0: openssl's default */
 	const char *md;
+	bool md_given;			/* -md, against -enc-key */
 	enum craf_pass_from pass_from;
 	const char *pass;		/* the file, the text or the source */
 	int pass_fd;			/* of -pass fd:, -1 for none */
+	const char *enc_key;		/* -enc-key, in place of a passphrase */
+	const char *iv;			/* -iv, in hex, with -enc-key */
 };
 
 /* What the command line says to dgst */

@@ -37,7 +37,7 @@ struct trusted {
  * 24 bytes would make the cipher AES-128 or AES-192 in silence.
  */
 int craf_check_user_key(const char *opt, const struct kc_key *key,
-			size_t want)
+			size_t want, bool *checked)
 {
 	key_serial_t id = kc_key_serial(key);
 	char *desc;
@@ -49,6 +49,8 @@ int craf_check_user_key(const char *opt, const struct kc_key *key,
 				opt, id);
 	user = strncmp(desc, "user;", 5) == 0;
 	free(desc);
+	if (checked)
+		*checked = user;
 	if (!user)
 		return CRAF_OK;
 	len = keyctl_read(id, NULL, 0);
@@ -88,7 +90,7 @@ static int serial_keys(const struct craf_key_opts *opts,
 	/* Keycrypt brings the length, and asks no View of the key */
 	if (!status && !opts->keycrypt)
 		status = craf_check_user_key("-enc-key", keys->enc,
-					     CRAF_KEY_LEN);
+					     CRAF_KEY_LEN, NULL);
 	return status;
 }
 
