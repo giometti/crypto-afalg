@@ -36,8 +36,10 @@ struct trusted {
  * A user key can be read back, so its length is checked: one of 16 or
  * 24 bytes would make the cipher AES-128 or AES-192 in silence.
  */
-static int check_user_key(const char *opt, key_serial_t id)
+int craf_check_user_key(const char *opt, const struct kc_key *key,
+			size_t want)
 {
+	key_serial_t id = kc_key_serial(key);
 	char *desc;
 	long len;
 	bool user;
@@ -53,9 +55,9 @@ static int check_user_key(const char *opt, key_serial_t id)
 	if (len < 0)
 		return craf_err(CRAF_FAILED, "%s: cannot read key %d: %m",
 				opt, id);
-	if (len != CRAF_KEY_LEN)
-		return craf_err(CRAF_USAGE, "%s: user key %d is %ld bytes, not %d",
-				opt, id, len, CRAF_KEY_LEN);
+	if (len != (long) want)
+		return craf_err(CRAF_USAGE, "%s: user key %d is %ld bytes, not %zu",
+				opt, id, len, want);
 	return CRAF_OK;
 }
 
@@ -85,7 +87,8 @@ static int serial_keys(const struct craf_key_opts *opts,
 
 	/* Keycrypt brings the length, and asks no View of the key */
 	if (!status && !opts->keycrypt)
-		status = check_user_key("-enc-key", kc_key_serial(keys->enc));
+		status = craf_check_user_key("-enc-key", keys->enc,
+					     CRAF_KEY_LEN);
 	return status;
 }
 
