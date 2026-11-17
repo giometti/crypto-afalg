@@ -647,16 +647,47 @@ static int check_pass_input(const struct craf_enc_opts *o, FILE *in)
 	return CRAF_OK;
 }
 
+/* The input through the cipher, in both directions */
+static int stream(struct kc_cipher *c, FILE *in, FILE *out)
+{
+	uint8_t buf[CRAF_BUF_SIZE], data[CRAF_BUF_SIZE + KC_BLOCK_MAX];
+	struct kc_error e;
+	size_t n, len;
+	int status;
+
+	/* In decryption the library holds back the last block, the padding */
+	do {
+		status = read_input(in, buf, sizeof(buf), &n);
+		if (status)
+			return status;
+		if (kc_cipher_update(c, buf, n, data, &len, &e))
+			return craf_err(CRAF_FAILED, "%s", e.msg);
+		status = write_output(out, data, len);
+		if (status)
+			return status;
+	} while (n > 0);
+
+	/*
+	 * A wrong length still gives the last whole block, which goes out
+	 * before the refusal, as with openssl
+	 */
+	if (kc_cipher_final(c, data, &len, &e)) {
+		write_output(out, data, len);	/* intentionally ignored */
+		return craf_err(e.status == KC_REFUSED ? CRAF_REFUSED :
+				CRAF_FAILED, "%s", e.msg);
+	}
+	return write_output(out, data, len);
+}
+
 int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o)
 {
 	uint8_t hdr[KC_OPENSSL_HEADER_LEN], salt[KC_OPENSSL_SALT_LEN];
-	uint8_t iv[KC_BLOCK_MAX], buf[CRAF_BUF_SIZE];
-	uint8_t plain[CRAF_BUF_SIZE + KC_BLOCK_MAX];
+	uint8_t iv[KC_BLOCK_MAX];
 	const char *name;
 	struct kc_cipher *c = NULL;
 	struct kc_key *k = NULL;
 	struct kc_error e;
-	size_t iv_len, n, len;
+	size_t iv_len, n;
 	int status;
 
 	status = cipher_shape(o, &iv_len);
@@ -685,32 +716,7 @@ int craf_enc(FILE *in, FILE *out, struct craf_enc_opts *o)
 	if (status)
 		return craf_err(CRAF_FAILED, "enc: cannot open %s: %s", name,
 				e.msg);
-
-	/* The library holds back the last block, which carries the padding */
-	do {
-		status = read_input(in, buf, sizeof(buf), &n);
-		if (status)
-			goto out;
-		if (kc_cipher_update(c, buf, n, plain, &len, &e)) {
-			status = craf_err(CRAF_FAILED, "%s", e.msg);
-			goto out;
-		}
-		status = write_output(out, plain, len);
-		if (status)
-			goto out;
-	} while (n > 0);
-
-	/*
-	 * A wrong length still gives the last whole block, which goes out
-	 * before the refusal, as with openssl
-	 */
-	if (kc_cipher_final(c, plain, &len, &e)) {
-		write_output(out, plain, len);	/* intentionally ignored */
-		status = craf_err(e.status == KC_REFUSED ? CRAF_REFUSED :
-				  CRAF_FAILED, "%s", e.msg);
-	} else
-		status = write_output(out, plain, len);
-out:
+	status = stream(c, in, out);
 	kc_cipher_free(c);
 	return status;
 }
