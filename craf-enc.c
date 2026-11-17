@@ -380,20 +380,11 @@ static size_t mode_of(const char *kname, const char **mode)
 	return p ? (size_t) (p - kname) : 0;
 }
 
-/*
- * The one place where the shape of the cipher is chosen, from its mode
- * and the sizes the kernel gives: a mode the format has no room for is a
- * wrong usage, CBC is what craf decrypts, any other mode is not yet. A
- * driver named is the only name bound, as in seal.
- */
-static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
+/* A mode the format of openssl enc has no room for is a wrong usage */
+static int check_portable(const struct craf_enc_opts *o)
 {
-	size_t block, key_min, key_max, len, i;
-	const char *mode, *shown = o->openssl_name ? o->openssl_name :
-				   o->kname;
-	const char *name = o->cipher_driver ? o->cipher_driver : o->kname;
-	struct kc_error e;
-	int status;
+	const char *mode;
+	size_t len, i;
 
 	len = mode_of(o->kname, &mode);
 	for (i = 0; i < ARRAY_SIZE(kernel_unportable); i++)
@@ -402,6 +393,27 @@ static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
 			return craf_err(CRAF_USAGE,
 					"enc: the format of openssl enc has no room for %s",
 					o->kname);
+	return CRAF_OK;
+}
+
+/*
+ * The one place where the shape of the cipher is chosen, from its mode
+ * and the sizes the kernel gives: CBC is what craf decrypts, any other
+ * mode is not yet. A driver named is the only name bound, as in seal.
+ */
+static int cipher_shape(struct craf_enc_opts *o, size_t *iv_len)
+{
+	size_t block, key_min, key_max, len;
+	const char *mode, *shown = o->openssl_name ? o->openssl_name :
+				   o->kname;
+	const char *name = o->cipher_driver ? o->cipher_driver : o->kname;
+	struct kc_error e;
+	int status;
+
+	len = mode_of(o->kname, &mode);
+	status = check_portable(o);
+	if (status)
+		return status;
 	if (o->cipher_driver) {
 		status = craf_driver_check("-cipher-driver", o->cipher_driver,
 					   o->kname, CRAF_USAGE);
