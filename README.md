@@ -29,7 +29,7 @@ This project provides a basic example of how to interact with the kernel's crypt
 
 To build and run this project, you need:
 
-  * A Linux system with `AF_ALG` support enabled; keys from the keyring (`-S|--keyserial`, and craf seal and unseal) need **Kernel 6.2 or newer** with `KEYS` support.
+  * A Linux system with `AF_ALG` support enabled; keys from the keyring through `AF_ALG` (`-S|--keyserial`, craf seal and unseal, craf enc `-enc-key`) need **Kernel 6.2 or newer** with `KEYS` support.
   * For the signatures of craf dgst, a kernel with `KEYCTL_PKEY_*` (4.20 or newer) and asymmetric keys: `ASYMMETRIC_KEY_TYPE`, `ASYMMETRIC_PUBLIC_KEY_SUBTYPE`, `X509_CERTIFICATE_PARSER` and `CRYPTO_RSA`.
   * For kcdm, a kernel with `BLK_DEV_DM`, `DM_CRYPT` and `KEYS`, and `TRUSTED_KEYS` or `ENCRYPTED_KEYS` for the key type it uses (Kconfig makes `DM_CRYPT` a module when one of them is a module), with devtmpfs mounted on `/dev` (see [doc/kcdm.md](doc/kcdm.md)).
   * For keycrypt keys (see [doc/libkcrypto.md](doc/libkcrypto.md)), a kernel with keycrypt, a series not merged upstream yet; without it a keyring key goes to `AF_ALG` as before, once its type is read: a revoked, expired or missing key is refused there, with the same cause.
@@ -265,7 +265,7 @@ By using the `--force-driver` option, you can force the use of a specific kernel
 
 ## craf
 
-`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries, and prints an archive's header without decrypting it; it decrypts the files of `openssl enc -pbkdf2`, and it computes the digests and checks the signatures of `openssl dgst`, from openssl's own command line:
+`craf` seals a stream into a single-file archive encrypted with AES-256-CBC, and unseals it, with a key from the keyring or from the blob of a trusted key that the archive then carries, and prints an archive's header without decrypting it; it decrypts the files of `openssl enc -pbkdf2`, encrypts and decrypts those of `openssl enc -K -iv` with a keyring key, and it computes the digests and checks the signatures of `openssl dgst`, from openssl's own command line:
 
 ```bash
 $ craf seal -cipher-driver cbc-aes-ce -enc-key @s,user,backup < data.tar > data.craf
@@ -274,6 +274,8 @@ $ craf seal -cipher-driver cbc-aes-ce -enc-blob key.blob < data.tar > data.craf
 $ craf unseal < data.craf > data.tar
 $ craf info -in data.craf
 $ craf enc -d -in data.tar.enc -aes-256-cbc -pbkdf2 -kfile data.key > data.tar
+$ iv=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+$ craf enc -aes-256-cbc -enc-key @u,user,data -iv "$iv" < data.tar > data.tar.enc
 $ craf dgst -sha256 data.tar
 $ craf dgst -sha256 -verify sign.key -signature data.tar.sig data.tar
 ```
