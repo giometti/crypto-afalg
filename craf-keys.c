@@ -59,7 +59,7 @@ static int check_user_key(const char *opt, key_serial_t id)
 	return CRAF_OK;
 }
 
-static int resolve(const char *opt, const char *spec, struct kc_key **key)
+int craf_find_key(const char *opt, const char *spec, struct kc_key **key)
 {
 	struct kc_error e;
 	int status;
@@ -81,7 +81,7 @@ static int serial_keys(const struct craf_key_opts *opts,
 {
 	int status;
 
-	status = resolve("-enc-key", opts->enc_key, &keys->enc);
+	status = craf_find_key("-enc-key", opts->enc_key, &keys->enc);
 
 	/* Keycrypt brings the length, and asks no View of the key */
 	if (!status && !opts->keycrypt)
