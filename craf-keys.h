@@ -59,6 +59,9 @@ struct craf_key_source {
 /* A keyring key by its spec or serial, as the option opt gives it */
 extern int craf_find_key(const char *opt, const char *spec,
 			 struct kc_key **key);
+/* A key the kernel did not describe, for the errno err: status 3 */
+extern int craf_describe_err(const char *opt, const struct kc_key *key,
+			     int err);
 /*
  * A user key, which can be read back, must be of want bytes; *checked,
  * when not NULL, says whether the key was one

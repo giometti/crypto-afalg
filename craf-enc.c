@@ -36,6 +36,10 @@
 #define MD_DEFAULT		"sha256"
 #define MD_MAX			(KC_NAME_MAX - 6)	/* in "hmac()" */
 
+#define NO_CIPHER		"enc: a cipher is required, as -aes-256-cbc " \
+				"or -cipher-algo"
+#define NO_KEYCRYPT		", for a key keycrypt does not run"
+
 /* A cipher of openssl whose kernel name the general rule does not give */
 struct exception {
 	const char *openssl;
@@ -356,9 +360,13 @@ int craf_enc_parse(int argc, char *argv[], struct craf_enc_opts *o)
 	if (o->openssl_name && o->cipher_algo)
 		return craf_err(CRAF_USAGE, "enc: give -%s or -cipher-algo, "
 				"not both", o->openssl_name);
-	if (!o->openssl_name && !o->cipher_algo)
-		return craf_err(CRAF_USAGE, "enc: a cipher is required, as "
-				"-aes-256-cbc or -cipher-algo");
+	/* A key keycrypt runs brings its cipher, which the key tells later */
+	if (!o->openssl_name && !o->cipher_algo && !o->enc_key)
+		return craf_err(CRAF_USAGE, NO_CIPHER);
+	if (!o->openssl_name && !o->cipher_algo &&
+	    o->backend == KC_BACKEND_AFALG)
+		return craf_err(CRAF_USAGE, NO_CIPHER NO_KEYCRYPT
+				", and with -backend afalg keycrypt runs none");
 	if (o->cipher_key_len && !o->cipher_algo)
 		return craf_err(CRAF_USAGE,
 				"enc: -cipher-key-len is for -cipher-algo");
@@ -760,39 +768,65 @@ static int key_len_err(const struct craf_enc_opts *o, size_t key_len)
 }
 
 /*
+ * No cipher given, for a key that keycrypt does not run, by its type, or
+ * may not: one the caller may not view, which -backend keycrypt still
+ * gives to keycrypt. Any other key that cannot be described fails, as it
+ * does in the library.
+ */
+static int no_cipher(const struct kc_key *k, int status,
+		     const struct kc_error *e)
+{
+	if (status == KC_REFUSED)
+		return craf_err(CRAF_USAGE, NO_CIPHER NO_KEYCRYPT ": the key %d "
+				"is not a keycrypt key", kc_key_serial(k));
+	if (e->errnum != EACCES)
+		return craf_describe_err("-enc-key", k, e->errnum);
+	return craf_err(CRAF_USAGE, NO_CIPHER NO_KEYCRYPT ": the type of the "
+			"key %d cannot be read (%s), -backend keycrypt lets "
+			"the key decide", kc_key_serial(k), strerror(EACCES));
+}
+
+/*
  * A key the kernel runs through keycrypt brings its cipher and the
  * lengths of its IV and key, and needs neither AF_ALG nor /proc/crypto:
  * it is opened first, as the library does in AUTO, where it is of the
  * type keycrypt and -iv is of the IV such a key takes; a key whose type
  * cannot be read goes to AF_ALG, which describes it in its turn. *c
- * stays NULL for a key that is none. With -backend keycrypt the library
+ * stays NULL for a key that is none. With no cipher given only such a
+ * key can run, so -iv must be its IV. With -backend keycrypt the library
  * decides, and the IV must be one keycrypt takes.
  */
 static int open_keycrypt(struct craf_enc_opts *o, const struct kc_key *k,
 			 struct kc_cipher **c)
 {
-	const char *name = o->cipher_driver ? o->cipher_driver : o->kname;
+	const char *name = o->cipher_driver ? o->cipher_driver :
+			   *o->kname ? o->kname : NULL;
 	uint8_t iv[KC_KEYCRYPT_IV_LEN];
 	struct kc_error e;
 	size_t key_len;
 	int status;
 
 	*c = NULL;
-	if (o->backend == KC_BACKEND_KEYCRYPT) {
-		status = parse_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN);
-		if (status)
-			return status;
-	} else if (!hex_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN) ||
-		   kc_key_is_keycrypt(k, &e) != KC_OK)
-		return CRAF_OK;
+	if (o->backend != KC_BACKEND_KEYCRYPT) {
+		if (*o->kname && !hex_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN))
+			return CRAF_OK;
+		status = kc_key_is_keycrypt(k, &e);
+		if (status != KC_OK && !*o->kname)
+			return no_cipher(k, status, &e);
+		if (status != KC_OK)
+			return CRAF_OK;
+	}
+	status = parse_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN);
+	if (status)
+		return status;
 	status = kc_cipher_open_backend(c, KC_BACKEND_KEYCRYPT, name, k,
 					!o->decrypt, iv, KC_KEYCRYPT_IV_LEN,
 					o->min_tier, &e);
 	if (status == KC_USAGE)
 		return craf_err(CRAF_USAGE, "enc: %s", e.msg);
 	if (status)
-		return craf_err(CRAF_FAILED, "enc: cannot open %s: %s", name,
-				e.msg);
+		return craf_err(CRAF_FAILED, "enc: cannot open %s: %s",
+				name ? name : "the key's cipher", e.msg);
 	key_len = kc_cipher_key_len(*c);
 	if (o->key_len && key_len != o->key_len)
 		return key_len_err(o, key_len);

@@ -83,7 +83,7 @@ struct craf_enc_opts {
 	const char *cipher_algo;	/* -cipher-algo */
 	long cipher_key_len;		/* -cipher-key-len, 0 if not given */
 	const char *cipher_driver;	/* -cipher-driver */
-	char kname[CRAF_STR_MAX + 1];	/* the cipher as the kernel names it */
+	char kname[CRAF_STR_MAX + 1];	/* the cipher, "" for the key's own */
 	size_t key_len;			/* 0: the only one the kernel takes */
 	bool pbkdf2;
 	long iter;			/* 0: openssl's default */

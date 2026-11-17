@@ -122,6 +122,30 @@ craf_expect 2 'enc: -enc-key is a key of 32 bytes, -aes-128-cbc takes 16 here' \
 craf_expect 2 'is of cbc(aes), with its own backend: "cbc-aes-none" is not for it' \
 	$NAME.in enc -aes-256-cbc -cipher-driver cbc-aes-none -enc-key $kx -iv $iv
 
+# No cipher: the key brings its own, the same bytes as -aes-256-cbc both
+# ways; a cipher given must be the key's, a driver is none, and -iv is
+# the IV of such a key
+craf enc -enc-key $kx -iv $iv < $NAME.in 2> $NAME.err | cmp -s - $NAME.ek ||
+	fail=y
+if [ -s $NAME.err ]; then
+	echo "craf enc with a keycrypt key and no cipher: $(cat $NAME.err)"
+	fail=y
+fi
+craf enc -d -enc-key $kx -iv $iv < $NAME.ek 2> /dev/null |
+	cmp -s - $NAME.in || fail=y
+craf enc -backend keycrypt -enc-key $kx -iv $iv < $NAME.in 2> /dev/null |
+	cmp -s - $NAME.ek || fail=y
+craf enc -backend keycrypt -d -enc-key $kx -iv $iv < $NAME.ek \
+	2> /dev/null | cmp -s - $NAME.in || fail=y
+craf_expect 2 'is of cbc(aes), with its own backend: "cbc(des3_ede)" is not for it' \
+	$NAME.in enc -des-ede3-cbc -enc-key $kx -iv $iv
+craf_expect 2 'is of cbc(aes), with its own backend: "cbc-aes-none" is not for it' \
+	$NAME.in enc -cipher-driver cbc-aes-none -enc-key $kx -iv $iv
+craf_expect 2 '-iv: "a0a1a2a3a4a5a6a7" is not 32 hex digits' \
+	$NAME.in enc -enc-key $kx -iv a0a1a2a3a4a5a6a7
+craf_expect 3 "enc: cannot open the key's cipher: keycrypt, key $kd: the purpose of the key does not allow encryption" \
+	$NAME.in enc -enc-key $kd -iv $iv
+
 # -backend keycrypt runs the same key, and a keycrypt key the caller may
 # not view, which craf cannot describe for AF_ALG, runs only with it;
 # -backend afalg takes no keycrypt key
@@ -137,6 +161,12 @@ craf enc -backend keycrypt -e -aes-256-cbc -enc-key $kv -iv $iv \
 	< $NAME.in > $NAME.ev || fail=y
 craf enc -backend keycrypt -d -aes-256-cbc -enc-key $kv -iv $iv \
 	< $NAME.ev 2> /dev/null | cmp -s - $NAME.in || fail=y
+craf enc -backend keycrypt -enc-key $kv -iv $iv < $NAME.in 2> /dev/null |
+	cmp -s - $NAME.ev || fail=y
+craf enc -backend keycrypt -d -enc-key $kv -iv $iv < $NAME.ev \
+	2> /dev/null | cmp -s - $NAME.in || fail=y
+craf_expect 2 "enc: a cipher is required, as -aes-256-cbc or -cipher-algo, for a key keycrypt does not run: the type of the key $kv cannot be read (Permission denied), -backend keycrypt lets the key decide" \
+	$NAME.in enc -enc-key $kv -iv $iv
 
 # The same for seal; unseal of a keycrypt archive needs no -backend
 craf seal -backend keycrypt -enc-key $kv < $NAME.in > $NAME.sv || fail=y
@@ -147,6 +177,8 @@ craf enc -enc-min-tier any -d -aes-256-cbc -enc-key $kx -iv $iv \
 	< $NAME.ek 2> /dev/null | cmp -s - $NAME.in || fail=y
 craf enc -enc-min-tier $tier -d -aes-256-cbc -enc-key $kx -iv $iv \
 	< $NAME.ek 2> /dev/null | cmp -s - $NAME.in || fail=y
+craf enc -enc-min-tier $tier -d -enc-key $kx -iv $iv < $NAME.ek \
+	2> /dev/null | cmp -s - $NAME.in || fail=y
 craf seal -enc-key $kx -enc-min-tier $tier < $NAME.in |
 	craf unseal -enc-key $kx -enc-min-tier $tier | cmp -s - $NAME.in ||
 	fail=y
@@ -191,6 +223,13 @@ if [ "$CRAF_TEST_KEYCRYPT_IMPORT" = 1 ] && [ -n "$driver" ]; then
 			< $NAME.in |
 			craf enc -d -aes-256-cbc -enc-key $ki -iv $iv \
 				2> /dev/null | cmp -s - $NAME.in || fail=y
+		craf enc -enc-key $ki -iv $iv < $NAME.in 2> /dev/null |
+			openssl enc -d -aes-256-cbc -K $CRAF_KEY_GOOD -iv $iv |
+			cmp -s - $NAME.in || fail=y
+		openssl enc -e -aes-256-cbc -K $CRAF_KEY_GOOD -iv $iv \
+			< $NAME.in |
+			craf enc -d -enc-key $ki -iv $iv 2> /dev/null |
+			cmp -s - $NAME.in || fail=y
 	fi
 fi
 

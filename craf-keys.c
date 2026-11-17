@@ -32,6 +32,12 @@ struct trusted {
 	uint16_t len;
 };
 
+int craf_describe_err(const char *opt, const struct kc_key *key, int err)
+{
+	return craf_err(CRAF_FAILED, "%s: cannot describe key %d: %s", opt,
+			kc_key_serial(key), strerror(err));
+}
+
 /*
  * A user key can be read back, so its length is checked: one of 16 or
  * 24 bytes would make the cipher AES-128 or AES-192 in silence.
@@ -45,8 +51,7 @@ int craf_check_user_key(const char *opt, const struct kc_key *key,
 	bool user;
 
 	if (keyctl_describe_alloc(id, &desc) < 0)
-		return craf_err(CRAF_FAILED, "%s: cannot describe key %d: %m",
-				opt, id);
+		return craf_describe_err(opt, key, errno);
 	user = strncmp(desc, "user;", 5) == 0;
 	free(desc);
 	if (checked)

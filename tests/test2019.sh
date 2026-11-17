@@ -13,6 +13,8 @@ u16=$(craf_add_key $NAME-16 $k16)
 craf -help > $NAME.help || fail=y
 grep -q -- '-enc-key <key> -iv <hex> \[ -cipher-driver <driver> \]' \
 	$NAME.help || fail=y
+grep -qF -- '[ -<openssl cipher> | -cipher-algo <cipher> [ -cipher-key-len <n> ] ]' \
+	$NAME.help || fail=y
 
 # What openssl enc -K -iv writes and reads, every length around the block
 # and the 8192 bytes read at once; -e is the default, as for openssl
@@ -106,6 +108,40 @@ kr=$(craf_add_key $NAME-r $CRAF_KEY_GOOD)
 keyctl revoke $kr
 enc_expect 3 "-enc-key: cannot describe key $kr: Key has been revoked" $NAME.in \
 	-aes-256-cbc -enc-key $kr -iv $CRAF_IV
+
+# No cipher: only a key keycrypt runs brings its own; a key of another
+# type, -backend afalg and a key without View, the only one -backend
+# keycrypt may still run, are a wrong usage, any other key craf cannot
+# describe (revoked, gone) a failure
+nc='enc: a cipher is required, as -aes-256-cbc or -cipher-algo, for a key keycrypt does not run'
+for d in -e -d; do
+	enc_expect 2 "$nc: the key $good is not a keycrypt key" $NAME.ref $d \
+		-enc-key $good -iv $CRAF_IV
+	keycrypt_not_asked
+done
+enc_expect 2 "$nc, and with -backend afalg keycrypt runs none" $NAME.in \
+	-backend afalg -enc-key $good -iv $CRAF_IV
+enc_expect 2 "enc: the key $good is not a keycrypt key" $NAME.in \
+	-backend keycrypt -enc-key $good -iv $CRAF_IV
+keycrypt_not_asked
+enc_expect 3 "-enc-key: cannot describe key $kr: Key has been revoked" $NAME.in \
+	-enc-key $kr -iv $CRAF_IV
+enc_expect 3 "enc: cannot open the key's cipher: key $kr: Key has been revoked" \
+	$NAME.in -backend keycrypt -enc-key $kr -iv $CRAF_IV
+kg=$(craf_add_key $NAME-g $CRAF_KEY_GOOD)
+keyctl invalidate $kg
+enc_expect 3 "-enc-key: cannot describe key $kg: Required key not available" \
+	$NAME.in -enc-key $kg -iv $CRAF_IV
+kv=$(craf_add_key $NAME-v $CRAF_KEY_GOOD)
+keyctl setperm $kv 0x08000000
+if keyctl describe $kv > /dev/null 2>&1; then
+	echo "keyctl setperm: the key $kv can still be viewed"
+	fail=y
+fi
+enc_expect 2 "$nc: the type of the key $kv cannot be read (Permission denied), -backend keycrypt lets the key decide" \
+	$NAME.in -enc-key $kv -iv $CRAF_IV
+enc_expect 2 'enc: -cipher-key-len is for -cipher-algo' $NAME.in \
+	-cipher-key-len 32 -enc-key $good -iv $CRAF_IV
 
 # -backend and -enc-min-tier, as for seal: auto and afalg take a key of
 # another type to AF_ALG, keycrypt refuses it, and a minimum tier is for
