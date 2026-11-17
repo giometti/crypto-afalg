@@ -275,7 +275,8 @@ $ craf unseal < data.craf > data.tar
 $ craf info -in data.craf
 $ craf enc -d -in data.tar.enc -aes-256-cbc -pbkdf2 -kfile data.key > data.tar
 $ iv=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
-$ craf enc -aes-256-cbc -enc-key @u,user,data -iv "$iv" < data.tar > data.tar.enc
+$ craf enc -enc-key @u,keycrypt,data -iv "$iv" < data.tar > data.tar.enc
+$ craf enc -d -enc-key @u,keycrypt,data -iv "$iv" < data.tar.enc > data.tar
 $ craf dgst -sha256 data.tar
 $ craf dgst -sha256 -verify sign.key -signature data.tar.sig data.tar
 ```

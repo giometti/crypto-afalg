@@ -73,13 +73,14 @@ The exit status is 0 when the header is printed; 1 when it is refused (not a cra
 
 ## enc: the files of openssl enc
 
-`craf enc -d` decrypts a file that `openssl enc -pbkdf2` wrote, with the cipher in the kernel: the same command line, the name of the command apart, opens the same files. With a key of the keyring, `-enc-key`, in place of the `-K` of openssl, `craf enc` encrypts and decrypts the files of `openssl enc -K <hex> -iv <hex>` (below).
+`craf enc -d` decrypts a file that `openssl enc -pbkdf2` wrote, with the cipher in the kernel: the same command line, the name of the command apart, opens the same files. With a key of the keyring, `-enc-key`, in place of the `-K` of openssl, `craf enc` encrypts and decrypts the files of `openssl enc -K <hex> -iv <hex>`, and a keycrypt key brings the cipher too, which openssl needs named (below).
 
 ```bash
 $ craf enc -d -in rootfs.tar.xz.enc -aes-256-cbc -pbkdf2 -kfile rootfs.key | tar xJf -
 $ craf enc -d -cipher-driver cbc-aes-ce -cipher-algo 'cbc(aes)' -cipher-key-len 32 -pbkdf2 -kfile rootfs.key < in.enc > out
 $ iv=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
-$ craf enc -aes-256-cbc -enc-key @u,user,data -iv "$iv" < data > data.enc
+$ craf enc -enc-key @u,keycrypt,data -iv "$iv" < data > data.enc
+$ craf enc -d -enc-key @u,keycrypt,data -iv "$iv" < data.enc > data
 ```
 
   * `-d` is required with a passphrase: craf encrypts only with `-enc-key` (`-e` given last is refused, as openssl would encrypt).
@@ -108,6 +109,11 @@ $ craf enc -aes-256-cbc -enc-key @u,user,data -iv "$iv" < data > data.enc
     * Its cipher is its own. The cipher named must be the key's (`-aes-256-cbc` for `aes256-cbc`), and a driver with it is a wrong usage.
     * Its algorithm fixes its length, 32 bytes for `aes256-cbc`: a cipher named with another length is a wrong usage.
     * craf cannot read the type of a key you may not view (the `View` permission). By default such a key goes to `AF_ALG`, where craf cannot describe it either, and craf exits with status 3. `-backend keycrypt` runs it.
+  * A keycrypt key needs no cipher: `-enc-key` and `-iv` are enough, as the examples show, and craf runs the key's algorithm.
+    * Only a keycrypt key can run without a cipher, so `-iv` must then have 32 digits.
+    * Without a cipher, a key of another type is a wrong usage, and so is `-backend afalg`.
+    * Without a cipher, a key you may not view is a wrong usage too, since craf cannot read its type: `-backend keycrypt` lets the key decide.
+    * Without a cipher, a key that craf cannot describe for another reason, such as one revoked, expired or gone, exits with status 3.
   * `-backend auto|afalg|keycrypt` and `-enc-min-tier`, with `-enc-key` only, work as for seal:
     * `auto`, the default, chooses by the key's type, as above.
     * `keycrypt` gives the key to keycrypt, with an `-iv` of 32 digits. A key of another type is then a wrong usage.
