@@ -40,6 +40,7 @@ openssl enc -e -aes-128-cbc -K $k16 -iv $CRAF_IV < $NAME.in > $NAME.r16
 craf enc -aes-128-cbc -enc-key $u16 -iv $CRAF_IV < $NAME.in 2> /dev/null |
 	cmp -s - $NAME.r16 || fail=y
 
+# A cipher whose IV no keycrypt key takes goes to AF_ALG all the same:
 # 3DES, a block of 8, where the kernel has it
 k24=${CRAF_KEY_GOOD:0:48}
 u24=$(craf_add_key $NAME-24 $k24)
@@ -99,7 +100,8 @@ craf enc "${ek[@]}" -salt < $NAME.in > /dev/null 2> $NAME.err || fail=y
 grep -qxF 'craf: warning: -salt has no effect with -enc-key' $NAME.err ||
 	fail=y
 
-# A revoked key fails as the kernel describes it
+# A key whose type cannot be read goes to AF_ALG, where craf cannot
+# describe it either: a revoked key fails as the kernel describes it
 kr=$(craf_add_key $NAME-r $CRAF_KEY_GOOD)
 keyctl revoke $kr
 enc_expect 3 "-enc-key: cannot describe key $kr: Key has been revoked" $NAME.in \

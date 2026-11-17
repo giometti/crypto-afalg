@@ -105,6 +105,36 @@ if [ "$tier" != hsm ]; then
 		$NAME.craf unseal -enc-key $kx -enc-min-tier hsm
 fi
 
+# craf enc, as openssl enc -K -iv, with no AF_ALG: the key brings its
+# length, and its algorithm takes no driver, which is not looked for
+iv=a0a1a2a3a4a5a6a7a8a9aaabacadaeaf
+craf enc -e -aes-256-cbc -enc-key $kx -iv $iv < $NAME.in > $NAME.ek \
+	2> $NAME.err || fail=y
+# The cipher is the key's own: nothing to say of how its name is taken
+if [ -s $NAME.err ]; then
+	echo "craf enc with a keycrypt key: $(cat $NAME.err)"
+	fail=y
+fi
+craf enc -d -aes-256-cbc -enc-key $kx -iv $iv < $NAME.ek 2> /dev/null |
+	cmp -s - $NAME.in || fail=y
+craf_expect 2 'enc: -enc-key is a key of 32 bytes, -aes-128-cbc takes 16 here' \
+	$NAME.in enc -aes-128-cbc -enc-key $kx -iv $iv
+craf_expect 2 'is of cbc(aes), with its own backend: "cbc-aes-none" is not for it' \
+	$NAME.in enc -aes-256-cbc -cipher-driver cbc-aes-none -enc-key $kx -iv $iv
+
+# A keycrypt key the caller may not view: craf cannot read its type, so
+# it goes to AF_ALG, which cannot describe it either
+add kv $NAME-v encrypt,decrypt
+keyctl setperm $kv 0x08000000
+if keyctl describe $kv > /dev/null 2>&1; then
+	echo "keyctl setperm: the key $kv can still be viewed"
+	fail=y
+fi
+if [ -n "$driver" ]; then
+	craf_expect 3 "-enc-key: cannot describe key $kv: Permission denied" \
+		$NAME.in enc -aes-256-cbc -enc-key $kv -iv $iv
+fi
+
 # A key of a known value: the data are AES-256-CBC that openssl and
 # AF_ALG read with the same bytes of key, in both directions
 if [ "$CRAF_TEST_KEYCRYPT_IMPORT" = 1 ] && [ -n "$driver" ]; then
@@ -127,6 +157,14 @@ if [ "$CRAF_TEST_KEYCRYPT_IMPORT" = 1 ] && [ -n "$driver" ]; then
 		craf_fixed_archive $NAME.af
 		craf unseal -cipher-driver keycrypt@$backend -enc-key $ki \
 			< $NAME.af | cmp -s - <(craf_plain) || fail=y
+		craf enc -aes-256-cbc -enc-key $ki -iv $iv < $NAME.in \
+			2> /dev/null |
+			openssl enc -d -aes-256-cbc -K $CRAF_KEY_GOOD -iv $iv |
+			cmp -s - $NAME.in || fail=y
+		openssl enc -e -aes-256-cbc -K $CRAF_KEY_GOOD -iv $iv \
+			< $NAME.in |
+			craf enc -d -aes-256-cbc -enc-key $ki -iv $iv \
+				2> /dev/null | cmp -s - $NAME.in || fail=y
 	fi
 fi
 

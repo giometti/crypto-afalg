@@ -732,8 +732,54 @@ static int parse_iv(const char *hex, uint8_t *iv, size_t iv_len)
 	return CRAF_OK;
 }
 
+/* A key that brings its length must have the one of the cipher named */
+static int key_len_err(const struct craf_enc_opts *o, size_t key_len)
+{
+	return craf_err(CRAF_USAGE, "enc: -enc-key is a key of %zu bytes, "
+			"%s%s takes %zu here", key_len,
+			o->openssl_name ? "-" : "",
+			o->openssl_name ? o->openssl_name : o->kname,
+			o->key_len);
+}
+
 /*
- * A keyring key through AF_ALG, with the shape of the cipher the kernel
+ * A key the kernel runs through keycrypt brings its cipher and the
+ * lengths of its IV and key, and needs neither AF_ALG nor /proc/crypto:
+ * it is opened first, as the library does in AUTO, where it is of the
+ * type keycrypt and -iv is of the IV such a key takes; a key whose type
+ * cannot be read goes to AF_ALG, which describes it in its turn. *c
+ * stays NULL for a key that is none.
+ */
+static int open_keycrypt(struct craf_enc_opts *o, const struct kc_key *k,
+			 struct kc_cipher **c)
+{
+	const char *name = o->cipher_driver ? o->cipher_driver : o->kname;
+	uint8_t iv[KC_KEYCRYPT_IV_LEN];
+	struct kc_error e;
+	size_t key_len;
+	int status;
+
+	*c = NULL;
+	if (!hex_iv(o->iv, iv, KC_KEYCRYPT_IV_LEN) ||
+	    kc_key_is_keycrypt(k, &e) != KC_OK)
+		return CRAF_OK;
+	status = kc_cipher_open_backend(c, KC_BACKEND_KEYCRYPT, name, k,
+					!o->decrypt, iv, KC_KEYCRYPT_IV_LEN,
+					0, &e);
+	if (status == KC_USAGE)
+		return craf_err(CRAF_USAGE, "enc: %s", e.msg);
+	if (status)
+		return craf_err(CRAF_FAILED, "enc: cannot open %s: %s", name,
+				e.msg);
+	key_len = kc_cipher_key_len(*c);
+	if (o->key_len && key_len != o->key_len)
+		return key_len_err(o, key_len);
+	o->key_len = key_len;
+	return CRAF_OK;
+}
+
+/*
+ * Any other key through AF_ALG, with the shape of the cipher the kernel
  * gives. A key whose length cannot be read back (logon, trusted) is
  * taken by the kernel as it is, so a wrong one makes another cipher: a
  * warning says so.
@@ -784,6 +830,8 @@ static int enc_key(FILE *in, FILE *out, struct craf_enc_opts *o)
 	if (!status)
 		status = craf_find_key("-enc-key", o->enc_key, &k);
 	if (!status)
+		status = open_keycrypt(o, k, &c);
+	if (!status && !c)
 		status = open_afalg(o, k, &c);
 	kc_key_free(k);
 	if (!status)
