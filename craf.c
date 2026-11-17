@@ -111,7 +111,7 @@ int craf_check_driver_name(const char *name)
 	return CRAF_OK;
 }
 
-static int parse_backend(const char *arg, enum kc_backend_sel *sel)
+int craf_parse_backend(const char *arg, enum kc_backend_sel *sel)
 {
 	if (strcmp(arg, "auto") == 0)
 		*sel = KC_BACKEND_AUTO;
@@ -127,7 +127,7 @@ static int parse_backend(const char *arg, enum kc_backend_sel *sel)
 }
 
 /* The tiers of keycrypt, by the names its key metadata give them */
-static int parse_tier(const char *arg, unsigned int *tier)
+int craf_parse_tier(const char *arg, unsigned int *tier)
 {
 	static const struct {
 		const char *name;
@@ -406,13 +406,13 @@ int main(int argc, char *argv[])
 			keys.enc_blob = optarg;
 			break;
 		case 'k':
-			status = parse_backend(optarg, &drv.backend);
+			status = craf_parse_backend(optarg, &drv.backend);
 			if (status)
 				return status;
 			drv.backend_opts = true;
 			break;
 		case 't':
-			status = parse_tier(optarg, &drv.min_tier);
+			status = craf_parse_tier(optarg, &drv.min_tier);
 			if (status)
 				return status;
 			drv.backend_opts = true;

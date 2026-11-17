@@ -126,6 +126,8 @@ extern int craf_driver_check(const char *what, const char *driver,
 extern int craf_driver_for_algo(const char *algo, char *driver);
 
 extern int craf_check_driver_name(const char *name);
+extern int craf_parse_backend(const char *arg, enum kc_backend_sel *sel);
+extern int craf_parse_tier(const char *arg, unsigned int *tier);
 extern int craf_check_algo_name(const char *cmd, const char *type,
 				const char *opt, const char *name,
 				const char *driver_opt);
