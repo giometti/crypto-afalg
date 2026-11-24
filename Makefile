@@ -41,6 +41,8 @@ CFLAGS += -Ilib
 ifeq ($(ASAN),1)
 override CFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
 endif
+# On a 32-bit target, files over 2 GiB and 64-bit inode numbers
+override CFLAGS += -D_FILE_OFFSET_BITS=64
 KC_LDLIBS = -lkeyutils
 CRAF_LDLIBS = -lkeyutils
 KC_CHECK_LDLIBS = -lkeyutils
