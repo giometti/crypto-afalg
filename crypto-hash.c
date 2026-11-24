@@ -38,7 +38,7 @@ static int list_hashes(void)
 	for (algo = 0; algo < __AFALG_ALGO_END; algo++) {
 		if (algo_type(algo) != AFALG_TYPE_HASH)
 			continue;
-		info("%c %-20s%-16s  %lu        %lu",
+		info("%c %-20s%-16s  %zu        %zu",
 			kernel_has_algo("hash", algo_kname(algo)) ? '-' : 'x',
 			algo_name(algo), algo_kname(algo),
 			algo_block_size(algo), algo_key_len(algo));

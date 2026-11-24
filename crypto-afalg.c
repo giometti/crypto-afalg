@@ -128,10 +128,10 @@ size_t parse_str(const char *label, const char *str, char *data, size_t len)
 		 */
 		if (!isxdigit((unsigned char) str[2 * i]) ||
 		    !isxdigit((unsigned char) str[2 * i + 1]))
-                        fatal("cannot parse %s at byte #%lu", label, i);
+                        fatal("cannot parse %s at byte #%zu", label, i);
                 ret = sscanf(str + 2 * i, "%02x", &byte);
                 if (ret != 1)
-                        fatal("cannot parse %s at byte #%lu", label, i);
+                        fatal("cannot parse %s at byte #%zu", label, i);
 		data[i] = byte;
         }
 

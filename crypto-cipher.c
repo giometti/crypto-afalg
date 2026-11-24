@@ -42,7 +42,7 @@ static int list_ciphers(void)
 	for (algo = 0; algo < __AFALG_ALGO_END; algo++) {
 		if (algo_type(algo) != AFALG_TYPE_CIPHER)
 			continue;
-		info("%c %-20s%-16s  %lu        %lu/%lu",
+		info("%c %-20s%-16s  %zu        %zu/%zu",
 			kernel_has_algo("skcipher",
 					algo_kname(algo)) ? '-' : 'x',
 			algo_name(algo), algo_kname(algo),
